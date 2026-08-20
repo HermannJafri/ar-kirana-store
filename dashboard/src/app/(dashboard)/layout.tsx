@@ -8,6 +8,7 @@ import {
   DatabaseOutlined,
   UnorderedListOutlined,
   SettingOutlined,
+  BarChartOutlined,
 } from "@ant-design/icons";
 import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
@@ -40,7 +41,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       return;
     }
 
-    if (pathname.startsWith("/settings") && profile?.role !== "OWNER") {
+    // Settings and Analytics are business-sensitive / configuration —
+    // Owner only, Staff gets bounced to the product catalog.
+    if (
+      (pathname.startsWith("/settings") || pathname.startsWith("/analytics")) &&
+      profile?.role !== "OWNER"
+    ) {
       router.replace("/products");
     }
   }, [loading, firebaseUser, profile, pathname, router]);
@@ -94,7 +100,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       ),
     },
     ...(profile.role === "OWNER"
-      ? [{ key: "/settings", icon: <SettingOutlined />, label: "Shop Settings" }]
+      ? [
+          { key: "/analytics", icon: <BarChartOutlined />, label: "Analytics" },
+          { key: "/settings", icon: <SettingOutlined />, label: "Shop Settings" },
+        ]
       : []),
   ];
 

@@ -323,7 +323,41 @@ PENDING order used for the Phase D refresh-bug investigation (now CONFIRMED). `p
 Firebase password was reset to a known test value to enable on-device login. Clear all of
 this before Phase 7's real catalog entry.
 
-### Phase F — Dashboard: sales analytics sidebar — not started
+### Phase F — Dashboard: sales analytics sidebar
+
+Backend: new `GET /analytics/sales?from=&to=` (`backend/src/routes/analytics.ts`, Owner
+only via `requireRole("OWNER")`) — defaults to the last 7 days if no range is given,
+returns `{ summary: { totalRevenue, orderCount, avgOrderValue }, byProduct: [...] }`.
+**Business decision:** counts every order except `CANCELLED` (not just `DELIVERED`) —
+reasoning documented in the route's own comment: a small kirana owner wants a demand
+signal ("what's moving, what should I restock") the moment an order is placed, not a
+strict revenue-recognition number that waits for delivery days later. A stricter
+accounting view would count only `DELIVERED`, but nothing reaches that status yet this
+early in the build, which would make the analytics page permanently empty — the demand
+framing is both the more useful default for this app and the one that's actually
+testable against real data right now.
+
+Dashboard: new "Analytics" sidebar item (Owner only, same route-guard pattern as "Shop
+Settings" — Staff gets redirected to `/products`), `analytics/page.tsx` — antd
+`RangePicker` (default last 7 days), three summary `Statistic` cards, and a D3.js bar
+chart (`SalesByItemChart.tsx`) of sales by item with a Revenue/Quantity toggle
+(`Segmented`). Added `d3`, `@types/d3`, `dayjs` as direct dependencies.
+
+- [x] Analytics tab, Owner-only — verified via Playwright: visible and functional for the `owner` account; backend independently confirmed to 403 (`{"error":"Insufficient role"}`) for a non-owner (customer) token, same `requireRole`/route-guard pattern already proven for Shop Settings.
+- [x] Date-range picker, default last 7 days — verified: loaded pre-filled with `2026-08-15 → 2026-08-21` against the live DB.
+- [x] D3 bar chart, sales by item (quantity and revenue) — **fully verified against the live DB**: screenshotted both metrics, matching the backend's real aggregation (`Test Atta 5kg`: ₹2,200 revenue / 8 units across the fixture orders).
+- [x] Summary numbers (total revenue, order count, average order value) — verified: ₹1,925.00 / 6 orders / ₹320.83, matching a direct `curl` against the same endpoint.
+- [x] Only non-cancelled orders counted — verified: created a throwaway `CANCELLED` order with a deliberately huge total (₹999,999) as a canary; confirmed it did **not** appear in the summary or chart, then deleted it.
+
+**Test fixture note:** the ₹1,925 total revenue vs. the chart's ₹2,200 item-revenue sum
+is not a bug — it's the pre-existing Phase D test-fixture data-entry mistake noted
+earlier (one manually-inserted test order's `totalAmount` wasn't recalculated for its
+quantity). Real orders placed through `POST /orders` always compute `totalAmount`
+correctly server-side; this only affects hand-inserted test rows.
+
+**Exit criteria: met, directly verified 2026-08-21.** This was the last item from the
+original Phase B–F batch — ready to plan merging `feature/simplified-customer-flow`
+into `main`.
 
 ---
 
