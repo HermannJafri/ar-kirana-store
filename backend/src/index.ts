@@ -8,6 +8,7 @@ import { shopRouter } from "./routes/shop";
 import { uploadsRouter } from "./routes/uploads";
 import { authRouter } from "./routes/auth";
 import { ordersRouter } from "./routes/orders";
+import { categoriesRouter } from "./routes/categories";
 
 const app = express();
 app.use(cors());
@@ -19,6 +20,7 @@ app.use("/shop", shopRouter);
 app.use("/uploads", uploadsRouter);
 app.use("/auth", authRouter);
 app.use("/orders", ordersRouter);
+app.use("/categories", categoriesRouter);
 
 app.get("/health", async (_req, res) => {
   try {

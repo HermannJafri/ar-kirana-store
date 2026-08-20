@@ -65,6 +65,21 @@ class ApiService {
     return data as List<dynamic>;
   }
 
+  static Future<List<dynamic>> getCategories() async {
+    final data = await _authFetch('/categories');
+    return data as List<dynamic>;
+  }
+
+  static Future<List<dynamic>> getOrders() async {
+    final data = await _authFetch('/orders');
+    return data as List<dynamic>;
+  }
+
+  static Future<Map<String, dynamic>> getOrder(String id) async {
+    final data = await _authFetch('/orders/$id');
+    return data as Map<String, dynamic>;
+  }
+
   static Future<Map<String, dynamic>> getMe() async {
     final data = await _authFetch('/me');
     return data as Map<String, dynamic>;

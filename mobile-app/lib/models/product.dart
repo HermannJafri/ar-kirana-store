@@ -1,3 +1,14 @@
+class Category {
+  final String id;
+  final String name;
+
+  Category({required this.id, required this.name});
+
+  factory Category.fromJson(Map<String, dynamic> json) {
+    return Category(id: json['id'] as String, name: json['name'] as String);
+  }
+}
+
 class Product {
   final String id;
   final String shopId;
@@ -8,6 +19,7 @@ class Product {
   final String? unit;
   final int quantityAvailable;
   final bool isAvailable;
+  final Category? category;
 
   Product({
     required this.id,
@@ -19,6 +31,7 @@ class Product {
     this.unit,
     required this.quantityAvailable,
     required this.isAvailable,
+    this.category,
   });
 
   factory Product.fromJson(Map<String, dynamic> json) {
@@ -32,6 +45,9 @@ class Product {
       unit: json['unit'] as String?,
       quantityAvailable: json['quantityAvailable'] as int,
       isAvailable: json['isAvailable'] as bool,
+      category: json['category'] != null
+          ? Category.fromJson(json['category'] as Map<String, dynamic>)
+          : null,
     );
   }
 }

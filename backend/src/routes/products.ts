@@ -10,6 +10,7 @@ productsRouter.use(authenticate);
 productsRouter.get("/", async (req, res) => {
   const products = await prisma.product.findMany({
     where: { shopId: req.user!.shopId },
+    include: { category: true },
     orderBy: { createdAt: "desc" },
   });
   res.json(products);
@@ -17,7 +18,7 @@ productsRouter.get("/", async (req, res) => {
 
 // POST /products - create a product in the caller's own shop (Staff/Owner only)
 productsRouter.post("/", requireRole("STAFF", "OWNER"), async (req, res) => {
-  const { name, description, imageUrl, price, unit, quantityAvailable, isAvailable } =
+  const { name, description, imageUrl, price, unit, quantityAvailable, isAvailable, categoryId } =
     req.body ?? {};
 
   if (typeof name !== "string" || name.trim().length === 0) {
@@ -37,6 +38,14 @@ productsRouter.post("/", requireRole("STAFF", "OWNER"), async (req, res) => {
     return;
   }
 
+  if (typeof categoryId === "string" && categoryId) {
+    const category = await prisma.category.findUnique({ where: { id: categoryId } });
+    if (!category || category.shopId !== req.user!.shopId) {
+      res.status(400).json({ error: "Invalid categoryId" });
+      return;
+    }
+  }
+
   const product = await prisma.product.create({
     data: {
       shopId: req.user!.shopId,
@@ -47,7 +56,9 @@ productsRouter.post("/", requireRole("STAFF", "OWNER"), async (req, res) => {
       unit: typeof unit === "string" ? unit : null,
       quantityAvailable: qty,
       isAvailable: typeof isAvailable === "boolean" ? isAvailable : true,
+      categoryId: typeof categoryId === "string" && categoryId ? categoryId : null,
     },
+    include: { category: true },
   });
 
   res.status(201).json(product);
@@ -61,7 +72,7 @@ productsRouter.patch("/:id", requireRole("STAFF", "OWNER"), async (req, res) => 
     return;
   }
 
-  const { name, description, imageUrl, price, unit, quantityAvailable, isAvailable } =
+  const { name, description, imageUrl, price, unit, quantityAvailable, isAvailable, categoryId } =
     req.body ?? {};
 
   if (name !== undefined && (typeof name !== "string" || name.trim().length === 0)) {
@@ -79,6 +90,13 @@ productsRouter.patch("/:id", requireRole("STAFF", "OWNER"), async (req, res) => 
     res.status(400).json({ error: "quantityAvailable must be a non-negative integer" });
     return;
   }
+  if (categoryId !== undefined && categoryId !== null) {
+    const category = await prisma.category.findUnique({ where: { id: categoryId } });
+    if (!category || category.shopId !== req.user!.shopId) {
+      res.status(400).json({ error: "Invalid categoryId" });
+      return;
+    }
+  }
 
   const product = await prisma.product.update({
     where: { id: req.params.id },
@@ -90,7 +108,9 @@ productsRouter.patch("/:id", requireRole("STAFF", "OWNER"), async (req, res) => 
       ...(unit !== undefined ? { unit } : {}),
       ...(quantityAvailable !== undefined ? { quantityAvailable } : {}),
       ...(isAvailable !== undefined ? { isAvailable } : {}),
+      ...(categoryId !== undefined ? { categoryId } : {}),
     },
+    include: { category: true },
   });
 
   res.json(product);

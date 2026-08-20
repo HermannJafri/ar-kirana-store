@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Table,
   Button,
@@ -8,16 +8,24 @@ import {
   Form,
   Input,
   InputNumber,
+  Select,
   Switch,
   Upload,
   message,
   Popconfirm,
   Space,
+  Tabs,
+  List,
 } from "antd";
-import { UploadOutlined } from "@ant-design/icons";
+import { UploadOutlined, TagsOutlined, DeleteOutlined, EditOutlined, CheckOutlined } from "@ant-design/icons";
 import type { UploadProps } from "antd";
 import { authFetch, API_BASE } from "@/lib/api";
 import { auth } from "@/lib/firebase";
+
+interface Category {
+  id: string;
+  name: string;
+}
 
 interface Product {
   id: string;
@@ -28,6 +36,8 @@ interface Product {
   unit: string | null;
   quantityAvailable: number;
   isAvailable: boolean;
+  categoryId: string | null;
+  category: Category | null;
 }
 
 interface ProductFormValues {
@@ -37,10 +47,12 @@ interface ProductFormValues {
   unit?: string;
   quantityAvailable: number;
   isAvailable: boolean;
+  categoryId?: string;
 }
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
@@ -49,13 +61,22 @@ export default function ProductsPage() {
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm<ProductFormValues>();
 
+  const [search, setSearch] = useState("");
+  const [activeCategory, setActiveCategory] = useState("all");
+
+  const [categoryModalOpen, setCategoryModalOpen] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [categorySaving, setCategorySaving] = useState(false);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+
   // Tracks the most recent load() call so a slower, superseded request
   // (e.g. from React Strict Mode's double effect invocation in dev, or an
   // earlier reload overlapping a newer one) can't clobber fresher state
   // when it resolves late.
   const requestIdRef = useRef(0);
 
-  const load = async () => {
+  const loadProducts = async () => {
     const requestId = ++requestIdRef.current;
     setLoading(true);
     try {
@@ -70,8 +91,24 @@ export default function ProductsPage() {
     }
   };
 
+  const loadCategories = async () => {
+    try {
+      const data = await authFetch("/categories");
+      setCategories(data);
+    } catch (e) {
+      message.error((e as Error).message);
+    }
+  };
+
   useEffect(() => {
-    load();
+    let ignore = false;
+    (async () => {
+      await Promise.all([loadProducts(), loadCategories()]);
+      if (ignore) return;
+    })();
+    return () => {
+      ignore = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -92,6 +129,7 @@ export default function ProductsPage() {
       unit: product.unit ?? undefined,
       quantityAvailable: product.quantityAvailable,
       isAvailable: product.isAvailable,
+      categoryId: product.categoryId ?? undefined,
     });
     setModalOpen(true);
   };
@@ -126,7 +164,7 @@ export default function ProductsPage() {
     const values = await form.validateFields();
     setSaving(true);
     try {
-      const payload = { ...values, imageUrl };
+      const payload = { ...values, imageUrl, categoryId: values.categoryId ?? null };
       if (editing) {
         await authFetch(`/products/${editing.id}`, {
           method: "PATCH",
@@ -138,7 +176,7 @@ export default function ProductsPage() {
         message.success("Product created");
       }
       setModalOpen(false);
-      load();
+      loadProducts();
     } catch (e) {
       message.error((e as Error).message);
     } finally {
@@ -150,14 +188,78 @@ export default function ProductsPage() {
     try {
       await authFetch(`/products/${id}`, { method: "DELETE" });
       message.success("Product deactivated");
-      load();
+      loadProducts();
     } catch (e) {
       message.error((e as Error).message);
     }
   };
 
+  const addCategory = async () => {
+    if (!newCategoryName.trim()) return;
+    setCategorySaving(true);
+    try {
+      await authFetch("/categories", { method: "POST", body: JSON.stringify({ name: newCategoryName.trim() }) });
+      setNewCategoryName("");
+      loadCategories();
+    } catch (e) {
+      message.error((e as Error).message);
+    } finally {
+      setCategorySaving(false);
+    }
+  };
+
+  const startRename = (c: Category) => {
+    setRenamingId(c.id);
+    setRenameValue(c.name);
+  };
+
+  const saveRename = async (id: string) => {
+    if (!renameValue.trim()) return;
+    try {
+      await authFetch(`/categories/${id}`, { method: "PATCH", body: JSON.stringify({ name: renameValue.trim() }) });
+      setRenamingId(null);
+      loadCategories();
+      loadProducts(); // product rows embed the category name, refresh it
+    } catch (e) {
+      message.error((e as Error).message);
+    }
+  };
+
+  const deleteCategory = async (id: string) => {
+    try {
+      await authFetch(`/categories/${id}`, { method: "DELETE" });
+      message.success("Category deleted");
+      loadCategories();
+      loadProducts(); // products that had this category now show uncategorized
+      if (activeCategory === id) setActiveCategory("all");
+    } catch (e) {
+      message.error((e as Error).message);
+    }
+  };
+
+  const filteredProducts = useMemo(() => {
+    return products.filter((p) => {
+      const matchesSearch = p.name.toLowerCase().includes(search.trim().toLowerCase());
+      const matchesCategory =
+        activeCategory === "all" ||
+        (activeCategory === "uncategorized" ? !p.categoryId : p.categoryId === activeCategory);
+      return matchesSearch && matchesCategory;
+    });
+  }, [products, search, activeCategory]);
+
+  const categoryTabs = [
+    { key: "all", label: "All" },
+    ...categories.map((c) => ({ key: c.id, label: c.name })),
+    { key: "uncategorized", label: "Uncategorized" },
+  ];
+
   const columns = [
     { title: "Name", dataIndex: "name" },
+    {
+      title: "Category",
+      dataIndex: "category",
+      render: (c: Category | null) => c?.name ?? <span style={{ color: "#999" }}>—</span>,
+    },
     {
       title: "Price",
       dataIndex: "price",
@@ -191,18 +293,36 @@ export default function ProductsPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: 16 }}>
+      <Space style={{ marginBottom: 16 }}>
         <Button type="primary" onClick={openCreate}>
           Add product
         </Button>
-      </div>
+        <Button icon={<TagsOutlined />} onClick={() => setCategoryModalOpen(true)}>
+          Manage categories
+        </Button>
+        <Input.Search
+          placeholder="Search products by name"
+          allowClear
+          style={{ width: 280 }}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      </Space>
+
+      <Tabs
+        activeKey={activeCategory}
+        onChange={setActiveCategory}
+        items={categoryTabs.map((t) => ({ key: t.key, label: t.label }))}
+      />
+
       <Table
         rowKey="id"
         loading={loading}
         columns={columns}
-        dataSource={products}
-        locale={{ emptyText: "No products yet — add your first one." }}
+        dataSource={filteredProducts}
+        locale={{ emptyText: "No products match." }}
       />
+
       <Modal
         title={editing ? "Edit product" : "Add product"}
         open={modalOpen}
@@ -214,6 +334,13 @@ export default function ProductsPage() {
         <Form form={form} layout="vertical">
           <Form.Item name="name" label="Name" rules={[{ required: true, message: "Name is required" }]}>
             <Input />
+          </Form.Item>
+          <Form.Item name="categoryId" label="Category">
+            <Select
+              allowClear
+              placeholder="Uncategorized"
+              options={categories.map((c) => ({ value: c.id, label: c.name }))}
+            />
           </Form.Item>
           <Form.Item name="description" label="Description">
             <Input.TextArea rows={2} />
@@ -250,6 +377,61 @@ export default function ProductsPage() {
             <Switch />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title="Manage categories"
+        open={categoryModalOpen}
+        onCancel={() => setCategoryModalOpen(false)}
+        footer={null}
+      >
+        <Space.Compact style={{ width: "100%", marginBottom: 16 }}>
+          <Input
+            placeholder="New category name"
+            value={newCategoryName}
+            onChange={(e) => setNewCategoryName(e.target.value)}
+            onPressEnter={addCategory}
+          />
+          <Button type="primary" loading={categorySaving} onClick={addCategory}>
+            Add
+          </Button>
+        </Space.Compact>
+        <List
+          dataSource={categories}
+          locale={{ emptyText: "No categories yet." }}
+          renderItem={(c) =>
+            renamingId === c.id ? (
+              <List.Item key={c.id}>
+                <Space.Compact style={{ width: "100%" }}>
+                  <Input
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onPressEnter={() => saveRename(c.id)}
+                    autoFocus
+                  />
+                  <Button icon={<CheckOutlined />} onClick={() => saveRename(c.id)} />
+                </Space.Compact>
+              </List.Item>
+            ) : (
+              <List.Item
+                key={c.id}
+                actions={[
+                  <Button key="edit" size="small" icon={<EditOutlined />} onClick={() => startRename(c)} />,
+                  <Popconfirm
+                    key="delete"
+                    title="Delete this category?"
+                    description="Products in it become uncategorized, not deleted."
+                    onConfirm={() => deleteCategory(c.id)}
+                  >
+                    <Button size="small" danger icon={<DeleteOutlined />} />
+                  </Popconfirm>,
+                ]}
+              >
+                {c.name}
+              </List.Item>
+            )
+          }
+        />
       </Modal>
     </div>
   );

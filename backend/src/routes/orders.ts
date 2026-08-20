@@ -1,11 +1,18 @@
 import { Router } from "express";
-import { Prisma } from "@prisma/client";
+import { Prisma, OrderStatus } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { authenticate, requireRole } from "../middleware/auth";
 
 export const ordersRouter = Router();
 
 ordersRouter.use(authenticate);
+
+const ORDER_INCLUDE = {
+  items: { include: { product: true } },
+  customer: {
+    select: { id: true, name: true, mobile: true, houseNo: true, floorNo: true, area: true },
+  },
+} as const;
 
 interface OrderItemInput {
   productId: string;
@@ -70,7 +77,7 @@ ordersRouter.post("/", requireRole("CUSTOMER"), async (req, res) => {
           notes: typeof notes === "string" ? notes : null,
           items: { create: orderItemsData },
         },
-        include: { items: { include: { product: true } } },
+        include: ORDER_INCLUDE,
       });
     });
 
@@ -78,4 +85,99 @@ ordersRouter.post("/", requireRole("CUSTOMER"), async (req, res) => {
   } catch (e) {
     res.status(409).json({ error: (e as Error).message });
   }
+});
+
+// GET /orders - Customer sees their own orders; Staff/Owner see every order
+// for the shop (optionally filtered by ?status=). Newest first either way.
+ordersRouter.get("/", async (req, res) => {
+  const { status } = req.query;
+  const statusFilter =
+    typeof status === "string" && status in OrderStatus ? (status as OrderStatus) : undefined;
+
+  const where =
+    req.user!.role === "CUSTOMER"
+      ? { customerId: req.user!.id, ...(statusFilter ? { status: statusFilter } : {}) }
+      : { shopId: req.user!.shopId, ...(statusFilter ? { status: statusFilter } : {}) };
+
+  const orders = await prisma.order.findMany({
+    where,
+    include: ORDER_INCLUDE,
+    orderBy: { createdAt: "desc" },
+  });
+  res.json(orders);
+});
+
+// GET /orders/:id - a Customer can view their own order; Staff/Owner can
+// view any order in their shop.
+ordersRouter.get("/:id", async (req, res) => {
+  const order = await prisma.order.findUnique({
+    where: { id: req.params.id },
+    include: ORDER_INCLUDE,
+  });
+
+  if (!order) {
+    res.status(404).json({ error: "Order not found" });
+    return;
+  }
+  const isOwnCustomerOrder = req.user!.role === "CUSTOMER" && order.customerId === req.user!.id;
+  const isShopStaff =
+    (req.user!.role === "STAFF" || req.user!.role === "OWNER") && order.shopId === req.user!.shopId;
+  if (!isOwnCustomerOrder && !isShopStaff) {
+    res.status(404).json({ error: "Order not found" });
+    return;
+  }
+
+  res.json(order);
+});
+
+// Valid forward transitions. CANCELLED is reachable from any status up to
+// (not including) OUT_FOR_DELIVERY, per PROJECT_PROMPT.md's status flow.
+// DELIVERED isn't reachable here — that's Delivery's "payment collected"
+// action (Phase 5), not a plain status update.
+const NEXT_STATUS: Partial<Record<OrderStatus, OrderStatus[]>> = {
+  PENDING: [OrderStatus.CONFIRMED, OrderStatus.CANCELLED],
+  CONFIRMED: [OrderStatus.PICKING, OrderStatus.CANCELLED],
+  PICKING: [OrderStatus.PACKED, OrderStatus.CANCELLED],
+  PACKED: [OrderStatus.OUT_FOR_DELIVERY, OrderStatus.CANCELLED],
+};
+
+const STATUS_TIMESTAMP_FIELD: Partial<Record<OrderStatus, string>> = {
+  CONFIRMED: "confirmedAt",
+  PACKED: "packedAt",
+  OUT_FOR_DELIVERY: "outForDeliveryAt",
+  CANCELLED: "cancelledAt",
+};
+
+// PATCH /orders/:id/status - advance an order's status (Staff/Owner only).
+ordersRouter.patch("/:id/status", requireRole("STAFF", "OWNER"), async (req, res) => {
+  const existing = await prisma.order.findUnique({ where: { id: req.params.id } });
+  if (!existing || existing.shopId !== req.user!.shopId) {
+    res.status(404).json({ error: "Order not found" });
+    return;
+  }
+
+  const { status } = req.body ?? {};
+  if (typeof status !== "string" || !(status in OrderStatus)) {
+    res.status(400).json({ error: "Invalid status" });
+    return;
+  }
+
+  const allowed = NEXT_STATUS[existing.status] ?? [];
+  if (!allowed.includes(status as OrderStatus)) {
+    res.status(409).json({ error: `Cannot move an order from ${existing.status} to ${status}` });
+    return;
+  }
+
+  const timestampField = STATUS_TIMESTAMP_FIELD[status as OrderStatus];
+
+  const order = await prisma.order.update({
+    where: { id: req.params.id },
+    data: {
+      status: status as OrderStatus,
+      ...(timestampField ? { [timestampField]: new Date() } : {}),
+    },
+    include: ORDER_INCLUDE,
+  });
+
+  res.json(order);
 });

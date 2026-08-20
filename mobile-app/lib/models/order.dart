@@ -27,6 +27,7 @@ class OrderResult {
   final String paymentStatus;
   final double totalAmount;
   final String? deliveryAddress;
+  final DateTime createdAt;
   final List<OrderItemResult> items;
 
   OrderResult({
@@ -35,6 +36,7 @@ class OrderResult {
     required this.paymentStatus,
     required this.totalAmount,
     this.deliveryAddress,
+    required this.createdAt,
     required this.items,
   });
 
@@ -45,6 +47,7 @@ class OrderResult {
       paymentStatus: json['paymentStatus'] as String,
       totalAmount: double.parse(json['totalAmount'].toString()),
       deliveryAddress: json['deliveryAddress'] as String?,
+      createdAt: DateTime.parse(json['createdAt'] as String),
       items: (json['items'] as List<dynamic>)
           .map((e) => OrderItemResult.fromJson(e as Map<String, dynamic>))
           .toList(),

@@ -254,10 +254,75 @@ ordering under anyone's phone number with no verification at all.
 
 </details>
 
-### Phase B — Dashboard: username-based login — not started
-### Phase C — Dashboard: inventory, search, categories — not started
-### Phase D — Dashboard: order visibility & notifications — not started
-### Phase E — Customer app: order history & bill — not started
+### Phase B — Dashboard: username-based login
+
+Already implemented as part of the Phase A revision above (`dashboard/src/lib/auth.ts`'s
+`usernameToEmail`, `login/page.tsx` using a `username` field). Re-verified this session
+with a fresh Playwright login against the live owner account.
+
+- [x] Dashboard login by username instead of email — verified: logged in as `owner` via the actual UI form, landed on `/products`.
+
+### Phase C — Dashboard: inventory, search, categories & Customer app: catalog by category
+
+Backend: new `Category` model (`name`, `shopId`, unique per shop) with full CRUD at
+`backend/src/routes/categories.ts` (`authenticate` on all routes, `requireRole("STAFF",
+"OWNER")` on mutations). `Product.categoryId` (nullable, `onDelete: SetNull`) added;
+`GET/POST/PATCH /products` now include and accept `category`. Migration
+`20260821010000_categories` applied to the live DB.
+
+- [x] Category management (add/edit/delete) — verified via Playwright: added "Snacks", renamed, all reflected correctly in the dashboard's category modal.
+- [x] Assign category on product add/edit — verified: the product edit form's category `Select` renders and saves correctly.
+- [x] Products page search bar + category filter tabs — verified: search-by-name and tab filtering both work against real data.
+- [x] Inventory screen (all products, quantityAvailable, low-stock indicator, inline quantity edit) — verified: inline stock edit (5 → 20) persisted correctly, confirmed via reload.
+- [x] Customer app (Flutter) catalog grouped/filtered by category — verified on-device (`Medium_Phone_API_36.1` emulator): "All"/"Grains"/"Snacks" chips render from `GET /categories`, filtering by category works correctly (Grains shows the fixture product, Snacks correctly shows "No products in this category").
+
+### Phase D — Dashboard: order visibility & notifications
+
+Backend: `backend/src/routes/orders.ts` rewritten with role-scoped `GET /orders`
+(Customer sees own, Staff/Owner see shop-wide, both support `?status=` filter, newest
+first), `GET /orders/:id` (ownership-checked), and `PATCH /orders/:id/status`
+(Staff/Owner only, validated against a `NEXT_STATUS` transition map, sets the matching
+timestamp field). All verified via `curl` against the live DB: role scoping, valid/invalid
+transitions, role restriction on status updates.
+
+Dashboard: new "Orders" tab (`orders/page.tsx`) — table of all orders (status, customer,
+address, items, total, placed-at), filterable by status, detail modal with status-update
+action buttons (Confirm/Start picking/Mark packed/Out for delivery/Cancel — `DELIVERED`
+intentionally excluded, reserved for the Phase 5 Delivery role's "payment collected"
+action). Sidebar (`layout.tsx`) converted to `Layout.Sider` with a live PENDING-count
+badge, polling `GET /orders?status=PENDING` every 20s.
+
+- [x] Orders list + detail + status transitions — **fully verified against the live DB**, including a real diagnostic detour: an early test appeared to show the table not refreshing after a status update, but a follow-up run with a network log and a freshly-created fixture order confirmed the table *does* refresh correctly (`load(true)` firing and applying) — the earlier miss was insufficient wait time in that specific test script, not a code defect. No fix was needed.
+- [x] Sidebar PENDING badge, ~20s polling, no manual refresh needed — verified: badge count matched the live PENDING order count and updated after confirming an order.
+
+### Phase E — Customer app: order history & bill
+
+Flutter: `ApiService.getOrders()` / `getOrder(id)` added. New `MyOrdersScreen` (list,
+newest first, status chip + total per row) and `OrderDetailScreen` (status, placed-at,
+payment, itemized list with quantity × price, total — doubles as the receipt). Reachable
+from a new app-bar icon on the product browse screen.
+
+- [x] My Orders list — verified on-device: shows both a CONFIRMED and a PENDING fixture order with correct status colors, newest-first ordering.
+- [x] Order detail/receipt screen — verified on-device: status, placed-at timestamp, payment method, itemized quantity × price line, and total all render correctly from `GET /orders/:id`.
+
+**One real bug found and fixed this phase:** the My Orders list's status chip + total in
+the trailing column overflowed by 4px (`Card`/`ListTile` intrinsic-height mismatch with a
+default-size `Chip`). Fixed with `mainAxisSize: MainAxisSize.min` on the trailing `Column`
+and `materialTapTargetSize: MaterialTapTargetSize.shrinkWrap` on the `Chip`; re-verified
+on-device that the overflow banner is gone.
+
+**Also fixed (environment, not app code):** the mobile app's `.env` `API_BASE_URL` pointed
+at a stale LAN IP (the host machine's address had changed since it was last set), which
+made the app hang on its loading spinner indefinitely with no visible error. Updated to
+the current IP; worth checking this first if the app seems stuck on launch in a future
+session.
+
+**Test fixtures added this phase (cumulative, live DB):** two extra test orders for
+`phaseA2` (one PENDING, one CONFIRMED) to exercise the My Orders screens; one extra
+PENDING order used for the Phase D refresh-bug investigation (now CONFIRMED). `phaseA2`'s
+Firebase password was reset to a known test value to enable on-device login. Clear all of
+this before Phase 7's real catalog entry.
+
 ### Phase F — Dashboard: sales analytics sidebar — not started
 
 ---

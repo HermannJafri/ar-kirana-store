@@ -5,7 +5,11 @@ import '../providers/cart_provider.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import 'cart_screen.dart';
+import 'my_orders_screen.dart';
 import 'product_detail_screen.dart';
+
+const String _allCategoryId = 'all';
+const String _uncategorizedId = 'uncategorized';
 
 class ProductBrowseScreen extends StatefulWidget {
   const ProductBrowseScreen({super.key});
@@ -16,6 +20,8 @@ class ProductBrowseScreen extends StatefulWidget {
 
 class _ProductBrowseScreenState extends State<ProductBrowseScreen> {
   List<Product> _products = [];
+  List<Category> _categories = [];
+  String _activeCategoryId = _allCategoryId;
   bool _loading = true;
   String? _error;
 
@@ -31,19 +37,36 @@ class _ProductBrowseScreenState extends State<ProductBrowseScreen> {
       _error = null;
     });
     try {
-      final data = await ApiService.getProducts();
-      final products = data
+      final results = await Future.wait([
+        ApiService.getProducts(),
+        ApiService.getCategories(),
+      ]);
+      final products = results[0]
           .map((e) => Product.fromJson(e as Map<String, dynamic>))
           .where((p) => p.isAvailable && p.quantityAvailable > 0)
           .toList();
+      final categories = results[1]
+          .map((e) => Category.fromJson(e as Map<String, dynamic>))
+          .toList();
       if (!mounted) return;
-      setState(() => _products = products);
+      setState(() {
+        _products = products;
+        _categories = categories;
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  List<Product> get _filteredProducts {
+    if (_activeCategoryId == _allCategoryId) return _products;
+    if (_activeCategoryId == _uncategorizedId) {
+      return _products.where((p) => p.category == null).toList();
+    }
+    return _products.where((p) => p.category?.id == _activeCategoryId).toList();
   }
 
   @override
@@ -54,6 +77,13 @@ class _ProductBrowseScreenState extends State<ProductBrowseScreen> {
       appBar: AppBar(
         title: const Text('Products'),
         actions: [
+          IconButton(
+            tooltip: 'My orders',
+            icon: const Icon(Icons.receipt_long_outlined),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const MyOrdersScreen()),
+            ),
+          ),
           IconButton(
             tooltip: 'Log out',
             icon: const Icon(Icons.logout),
@@ -113,35 +143,79 @@ class _ProductBrowseScreenState extends State<ProductBrowseScreen> {
         ],
       );
     }
-    return ListView.separated(
-      padding: const EdgeInsets.all(12),
-      itemCount: _products.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 8),
-      itemBuilder: (context, index) {
-        final product = _products[index];
-        return Card(
-          child: ListTile(
-            leading: product.imageUrl != null
-                ? ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: Image.network(
-                      product.imageUrl!,
-                      width: 48,
-                      height: 48,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, _, _) => const Icon(Icons.image_not_supported),
-                    ),
-                  )
-                : const Icon(Icons.shopping_basket_outlined, size: 40),
-            title: Text(product.name),
-            subtitle: Text('₹${product.price.toStringAsFixed(2)}${product.unit != null ? ' / ${product.unit}' : ''}'),
-            trailing: Text('Stock: ${product.quantityAvailable}'),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => ProductDetailScreen(product: product)),
+
+    final hasUncategorized = _products.any((p) => p.category == null);
+    final filtered = _filteredProducts;
+
+    return Column(
+      children: [
+        if (_categories.isNotEmpty)
+          SizedBox(
+            height: 48,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              children: [
+                _categoryChip(_allCategoryId, 'All'),
+                const SizedBox(width: 8),
+                for (final category in _categories) ...[
+                  _categoryChip(category.id, category.name),
+                  const SizedBox(width: 8),
+                ],
+                if (hasUncategorized) _categoryChip(_uncategorizedId, 'Uncategorized'),
+              ],
             ),
           ),
-        );
-      },
+        Expanded(
+          child: filtered.isEmpty
+              ? ListView(
+                  children: const [
+                    SizedBox(height: 120),
+                    Center(child: Text('No products in this category.')),
+                  ],
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: filtered.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 8),
+                  itemBuilder: (context, index) {
+                    final product = filtered[index];
+                    return Card(
+                      child: ListTile(
+                        leading: product.imageUrl != null
+                            ? ClipRRect(
+                                borderRadius: BorderRadius.circular(4),
+                                child: Image.network(
+                                  product.imageUrl!,
+                                  width: 48,
+                                  height: 48,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, _, _) => const Icon(Icons.image_not_supported),
+                                ),
+                              )
+                            : const Icon(Icons.shopping_basket_outlined, size: 40),
+                        title: Text(product.name),
+                        subtitle: Text(
+                            '₹${product.price.toStringAsFixed(2)}${product.unit != null ? ' / ${product.unit}' : ''}'),
+                        trailing: Text('Stock: ${product.quantityAvailable}'),
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => ProductDetailScreen(product: product)),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _categoryChip(String id, String label) {
+    final selected = _activeCategoryId == id;
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      onSelected: (_) => setState(() => _activeCategoryId = id),
     );
   }
 }

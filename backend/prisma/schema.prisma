@@ -50,9 +50,23 @@ model Shop {
   longitude        Float?
   deliveryRadiusKm Float  @default(2)
 
-  users    User[]
+  users      User[]
+  products   Product[]
+  orders     Order[]
+  categories Category[]
+}
+
+model Category {
+  id        String   @id @default(uuid())
+  shopId    String
+  shop      Shop     @relation(fields: [shopId], references: [id])
+  name      String
+  createdAt DateTime @default(now())
+
   products Product[]
-  orders   Order[]
+
+  @@unique([shopId, name])
+  @@index([shopId])
 }
 
 model User {
@@ -95,6 +109,9 @@ model Product {
   id     String @id @default(uuid())
   shopId String
   shop   Shop   @relation(fields: [shopId], references: [id])
+
+  categoryId String?
+  category   Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
 
   name        String
   description String?

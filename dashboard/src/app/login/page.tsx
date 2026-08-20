@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { Button, Form, Input, Alert, Card, Typography } from "antd";
 import { auth } from "@/lib/firebase";
+import { usernameToEmail } from "@/lib/auth";
 
 interface LoginValues {
-  email: string;
+  username: string;
   password: string;
 }
 
@@ -20,10 +21,10 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, values.email, values.password);
+      await signInWithEmailAndPassword(auth, usernameToEmail(values.username), values.password);
       router.replace("/products");
     } catch {
-      setError("Invalid email or password.");
+      setError("Invalid username or password.");
     } finally {
       setLoading(false);
     }
@@ -35,8 +36,8 @@ export default function LoginPage() {
         <Typography.Title level={3}>Kirana Store — Staff Login</Typography.Title>
         {error && <Alert type="error" message={error} style={{ marginBottom: 16 }} />}
         <Form layout="vertical" onFinish={onFinish}>
-          <Form.Item name="email" label="Email" rules={[{ required: true, type: "email" }]}>
-            <Input autoComplete="email" />
+          <Form.Item name="username" label="Username" rules={[{ required: true, message: "Enter your username" }]}>
+            <Input autoComplete="username" autoCorrect="off" autoCapitalize="none" />
           </Form.Item>
           <Form.Item name="password" label="Password" rules={[{ required: true }]}>
             <Input.Password autoComplete="current-password" />
