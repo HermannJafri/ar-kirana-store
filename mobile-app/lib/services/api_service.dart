@@ -1,7 +1,7 @@
 import 'dart:convert';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
+import 'customer_storage.dart';
 
 class ApiException implements Exception {
   final String message;
@@ -10,28 +10,28 @@ class ApiException implements Exception {
   String toString() => message;
 }
 
-/// Attaches the current Firebase ID token to every backend request. Every
-/// read and write goes through the Express backend — see PROJECT_PROMPT.md
-/// ("Why every data access goes through the backend"). Mirrors
-/// dashboard/src/lib/api.ts's authFetch.
+/// Attaches the device-issued customer id (X-Customer-Id) to every backend
+/// request instead of a Firebase token — see PROJECT_PROMPT.md "Customer
+/// identity trade-off". Mirrors dashboard/src/lib/api.ts's authFetch, minus
+/// the token.
 class ApiService {
   static String get _baseUrl => dotenv.env['API_BASE_URL'] ?? 'http://10.0.2.2:4000';
 
-  static Future<dynamic> _authFetch(
+  static Future<dynamic> _request(
     String path, {
     String method = 'GET',
     Map<String, dynamic>? body,
+    bool requireAuth = true,
   }) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) throw ApiException('Not authenticated');
+    final headers = {'Content-Type': 'application/json'};
 
-    final token = await user.getIdToken();
+    if (requireAuth) {
+      final customerId = await CustomerStorage.readId();
+      if (customerId == null) throw ApiException('Not registered on this device');
+      headers['X-Customer-Id'] = customerId;
+    }
+
     final uri = Uri.parse('$_baseUrl$path');
-    final headers = {
-      'Authorization': 'Bearer $token',
-      'Content-Type': 'application/json',
-    };
-
     late http.Response response;
     switch (method) {
       case 'POST':
@@ -61,20 +61,33 @@ class ApiService {
   }
 
   static Future<List<dynamic>> getProducts() async {
-    final data = await _authFetch('/products');
+    final data = await _request('/products');
     return data as List<dynamic>;
   }
 
   static Future<Map<String, dynamic>> getMe() async {
-    final data = await _authFetch('/me');
+    final data = await _request('/me');
     return data as Map<String, dynamic>;
   }
 
-  static Future<Map<String, dynamic>> register({required String name, String? phone}) async {
-    final data = await _authFetch('/auth/register', method: 'POST', body: {
-      'name': name,
-      if (phone != null) 'phone': phone,
-    });
+  // No stored id yet at this point — this call establishes one.
+  static Future<Map<String, dynamic>> registerCustomer({
+    required String name,
+    required String mobile,
+    String? houseNo,
+    String? floorNo,
+  }) async {
+    final data = await _request(
+      '/auth/register',
+      method: 'POST',
+      requireAuth: false,
+      body: {
+        'name': name,
+        'mobile': mobile,
+        if (houseNo != null) 'houseNo': houseNo,
+        if (floorNo != null) 'floorNo': floorNo,
+      },
+    );
     return data as Map<String, dynamic>;
   }
 
@@ -83,7 +96,7 @@ class ApiService {
     String? deliveryAddress,
     String? notes,
   }) async {
-    final data = await _authFetch('/orders', method: 'POST', body: {
+    final data = await _request('/orders', method: 'POST', body: {
       'items': items,
       if (deliveryAddress != null) 'deliveryAddress': deliveryAddress,
       if (notes != null) 'notes': notes,

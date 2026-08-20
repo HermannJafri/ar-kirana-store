@@ -1,11 +1,13 @@
 import { Router } from "express";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
-import { authenticate, requireRole } from "../middleware/auth";
+import { identify, requireRole } from "../middleware/auth";
 
 export const ordersRouter = Router();
 
-ordersRouter.use(authenticate);
+// Customers place orders via X-Customer-Id, not a Firebase token — `identify`
+// supports both that and Staff/Owner/Delivery's Firebase Bearer token.
+ordersRouter.use(identify);
 
 interface OrderItemInput {
   productId: string;

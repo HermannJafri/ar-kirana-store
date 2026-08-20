@@ -2,23 +2,26 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
-import 'package:mobile/providers/cart_provider.dart';
-import 'package:mobile/screens/login_screen.dart';
+import 'package:mobile/services/customer_service.dart';
+import 'package:mobile/screens/profile_form_screen.dart';
 
 void main() {
-  testWidgets('LoginScreen renders email/password fields', (WidgetTester tester) async {
-    // LoginScreen only needs CartProvider for the widget tree to build here —
-    // AuthService needs a real Firebase app, which isn't available in a
-    // plain widget test, so the full AuthGate isn't exercised.
+  testWidgets('ProfileFormScreen renders name/mobile/address fields', (WidgetTester tester) async {
+    // CustomerService only needs its ChangeNotifier shape here — its
+    // constructor kicks off an async storage read that's harmless in a
+    // widget test (no backend call unless a stored id is found, which
+    // there won't be).
     await tester.pumpWidget(
       ChangeNotifierProvider(
-        create: (_) => CartProvider(),
-        child: const MaterialApp(home: LoginScreen()),
+        create: (_) => CustomerService(),
+        child: const MaterialApp(home: ProfileFormScreen()),
       ),
     );
 
-    expect(find.text('Log in'), findsWidgets);
-    expect(find.widgetWithText(TextFormField, 'Email'), findsOneWidget);
-    expect(find.widgetWithText(TextFormField, 'Password'), findsOneWidget);
+    expect(find.text('Tell us about you'), findsOneWidget);
+    expect(find.widgetWithText(TextFormField, 'Name'), findsOneWidget);
+    expect(find.widgetWithText(TextFormField, 'Mobile number'), findsOneWidget);
+    expect(find.widgetWithText(TextFormField, 'House / Flat No (optional)'), findsOneWidget);
+    expect(find.widgetWithText(TextFormField, 'Floor No (optional)'), findsOneWidget);
   });
 }

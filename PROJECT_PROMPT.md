@@ -74,7 +74,9 @@ misconfigured client, but it is not the access-control mechanism the app relies 
 Use the Prisma schema already drafted (`schema.prisma`) as the source of truth:
 
 - `Shop` — has `id`, supports multi-shop from day one even though only one shop exists now
-- `User` — `role` enum: CUSTOMER, STAFF, OWNER, DELIVERY. Linked to Firebase via `firebaseUid`
+- `User` — `role` enum: CUSTOMER, STAFF, OWNER, DELIVERY. Staff/Owner/Delivery are
+  linked to Firebase via `firebaseUid`; Customers instead have a unique `mobile` and
+  no `firebaseUid` — see "Customer identity trade-off" below
 - `Product` — belongs to a shop, has price, quantityAvailable, isAvailable, nullable `barcode`
   field reserved for Phase 2
 - `Order` — status flow: PENDING → CONFIRMED → PICKING → PACKED → OUT_FOR_DELIVERY → DELIVERED
@@ -89,10 +91,17 @@ Do not remove this even though there's only one shop right now.
 
 ## Access control
 
-Enforced in the Express backend, not in the database:
-- `authenticate` middleware verifies the Firebase ID token and resolves it to a `User`
-  row (`shopId`, `role`) via Prisma — every route requires this.
-- `requireRole(...)` middleware restricts a route to specific roles.
+Enforced in the Express backend, not in the database, via two credential types
+depending on who's calling:
+- `authenticate` middleware verifies a Firebase ID token and resolves it to a `User`
+  row (`shopId`, `role`) via Prisma. Used by Staff/Owner (dashboard) and, once built,
+  Delivery (Phase 5 mobile screens).
+- `identify` middleware accepts *either* a Firebase token *or* an `X-Customer-Id`
+  header (see "Customer identity trade-off" below) and resolves either to the same
+  `req.user` shape — used on routes Customers and Staff/Owner both need, like
+  browsing products or placing an order.
+- `requireRole(...)` middleware restricts a route to specific roles, chained after
+  either of the above.
 - Route handlers scope every query by `req.user.shopId` (and by `customerId` /
   `deliveryBoyId` where relevant) — the same rules that were originally drafted as RLS
   policies now live here instead:
@@ -104,6 +113,41 @@ Enforced in the Express backend, not in the database:
 
 Supabase RLS (`backend/sql/rls_policies.sql`) is enabled as a deny-by-default backstop,
 not the primary mechanism — see that file's header comment for details.
+
+---
+
+## Customer identity trade-off
+
+**Decision (feature/simplified-customer-flow, Phase A):** Customers do not use
+Firebase Auth and have no password. On first launch the app asks for name, mobile
+number, and a delivery address (house/flat no, floor no), and the backend
+find-or-creates a `User` row keyed on `mobile` (unique) and hands back its `id`. The
+app stores that `id` in secure on-device storage and sends it as `X-Customer-Id` on
+every request from then on — no login screen, no OTP, ever.
+
+**What this gives up, deliberately:**
+- The `X-Customer-Id` header is a bearer credential, not a verified token. Anyone who
+  obtains a customer's `id` can place orders and read that customer's order history as
+  them. There's no signature, no expiry, no way to detect a forged id short of it not
+  existing in the `User` table.
+- Mobile number is unverified — no SMS OTP confirms the customer actually owns that
+  number. A customer can register with anyone else's number.
+- Losing the device (without a backup of app data) means losing the account with no
+  recovery path beyond re-registering with the same mobile number, which the backend
+  treats as "this is the same customer" (find-or-create in `POST /auth/register`).
+
+**Why this is acceptable right now:** the store's entire customer base is ~30-40
+known people within a 1-2km radius — friends, family, and regular walk-in customers
+the shopkeeper already knows by name. The blast radius of someone impersonating a
+customer (placing a COD order in their name) is low and locally recoverable — this
+isn't a payment credential, and Cash on Delivery means no money moves until a real
+human hands over real goods at a real door.
+
+**Revisit this when:** the customer base grows beyond people the shopkeeper
+personally knows, if online payment is ever added (Phase 2+, currently out of
+scope), or if impersonation/abuse actually happens. The fix at that point is SMS OTP
+verification of the mobile number — the schema and `X-Customer-Id` mechanism don't
+block adding that later, but do not build it now.
 
 ---
 

@@ -53,10 +53,17 @@ model User {
   shopId      String
   shop        Shop   @relation(fields: [shopId], references: [id])
 
-  firebaseUid String   @unique // Firebase Auth link
+  // Firebase Auth link — Staff/Owner/Delivery only. Customers are identified
+  // by a device-issued id instead (see mobile below, and PROJECT_PROMPT.md
+  // "Customer identity trade-off" for why).
+  firebaseUid String?  @unique
   name        String
   email       String?  @unique
-  phone       String?
+  // Customer identifier: the phone number they registered with, no password.
+  // Staff/Owner/Delivery leave this null.
+  mobile      String?  @unique
+  houseNo     String?
+  floorNo     String?
   role        UserRole
 
   isActive  Boolean  @default(true)

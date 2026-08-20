@@ -43,8 +43,8 @@ export const authenticate: RequestHandler = async (req, res, next) => {
   next();
 };
 
-// Chain after `authenticate` to restrict a route to specific roles, e.g.
-// router.post("/staff", authenticate, requireRole("OWNER"), handler)
+// Chain after `authenticate` (or `identify`) to restrict a route to
+// specific roles, e.g. router.post("/staff", authenticate, requireRole("OWNER"), handler)
 export const requireRole = (...roles: UserRole[]): RequestHandler => {
   return (req, res, next) => {
     if (!req.user) {
@@ -57,4 +57,42 @@ export const requireRole = (...roles: UserRole[]): RequestHandler => {
     }
     next();
   };
+};
+
+// Customers don't have Firebase accounts (see PROJECT_PROMPT.md, "Customer
+// identity trade-off") — they're identified by the device-issued User.id
+// they got back at registration, sent as X-Customer-Id. This is a bearer
+// credential, not a verified token: anyone holding the id can act as that
+// customer. Accepted deliberately for a small/trusted customer base.
+const identifyCustomer: RequestHandler = async (req, res, next) => {
+  const customerId = req.headers["x-customer-id"];
+  if (typeof customerId !== "string" || customerId.length === 0) {
+    res.status(401).json({ error: "Missing X-Customer-Id" });
+    return;
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: customerId },
+    select: { id: true, shopId: true, role: true, isActive: true },
+  });
+
+  if (!user || !user.isActive || user.role !== "CUSTOMER") {
+    res.status(403).json({ error: "Invalid customer identity" });
+    return;
+  }
+
+  req.user = { id: user.id, shopId: user.shopId, role: user.role };
+  next();
+};
+
+// For routes shared between Staff/Owner (Firebase Bearer token) and
+// Customers (X-Customer-Id header) — e.g. browsing products, placing an
+// order. Picks whichever credential is present; Delivery will use the
+// Firebase path once its mobile screens exist (Phase 5).
+export const identify: RequestHandler = (req, res, next) => {
+  if (req.headers.authorization?.startsWith("Bearer ")) {
+    authenticate(req, res, next);
+    return;
+  }
+  identifyCustomer(req, res, next);
 };

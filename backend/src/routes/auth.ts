@@ -1,37 +1,44 @@
 import { Router } from "express";
-import { firebaseAuth } from "../lib/firebaseAdmin";
 import { prisma } from "../lib/prisma";
 
 export const authRouter = Router();
 
-// POST /auth/register - customer self-signup. The client creates the
-// Firebase Auth account first (createUserWithEmailAndPassword), then calls
-// this with the resulting ID token to create the matching CUSTOMER User row.
-// Unlike other routes this can't use the `authenticate` middleware, which
-// requires an existing User row — there isn't one yet, that's the point.
+// POST /auth/register - customer identification, no Firebase, no password.
+// Trade-off documented in PROJECT_PROMPT.md ("Customer identity trade-off"):
+// mobile number is the sole identifier, acceptable only for a small/trusted
+// customer base.
+//
+// Behaves as find-or-create by mobile: a returning customer (e.g. after
+// reinstalling the app, which clears the device's secure storage) who
+// re-enters the same mobile number gets their existing account and id back
+// rather than a uniqueness error.
 authRouter.post("/register", async (req, res) => {
-  const header = req.headers.authorization;
-  if (!header?.startsWith("Bearer ")) {
-    res.status(401).json({ error: "Missing bearer token" });
+  const { name, mobile, houseNo, floorNo } = req.body ?? {};
+
+  if (typeof mobile !== "string" || mobile.trim().length < 6) {
+    res.status(400).json({ error: "A valid mobile number is required" });
     return;
   }
-  const idToken = header.slice("Bearer ".length);
+  const trimmedMobile = mobile.trim();
 
-  let decoded;
-  try {
-    decoded = await firebaseAuth.verifyIdToken(idToken);
-  } catch {
-    res.status(401).json({ error: "Invalid or expired token" });
-    return;
-  }
-
-  const existing = await prisma.user.findUnique({ where: { firebaseUid: decoded.uid } });
+  const existing = await prisma.user.findUnique({ where: { mobile: trimmedMobile } });
   if (existing) {
-    res.status(409).json({ error: "Account already registered" });
+    if (existing.role !== "CUSTOMER") {
+      res.status(409).json({ error: "This mobile number is already registered to a staff account" });
+      return;
+    }
+    res.status(200).json({
+      id: existing.id,
+      name: existing.name,
+      mobile: existing.mobile,
+      shopId: existing.shopId,
+      role: existing.role,
+      houseNo: existing.houseNo,
+      floorNo: existing.floorNo,
+    });
     return;
   }
 
-  const { name, phone } = req.body ?? {};
   if (typeof name !== "string" || name.trim().length === 0) {
     res.status(400).json({ error: "name is required" });
     return;
@@ -47,14 +54,22 @@ authRouter.post("/register", async (req, res) => {
 
   const user = await prisma.user.create({
     data: {
-      firebaseUid: decoded.uid,
       shopId: shop.id,
       name: name.trim(),
-      email: decoded.email ?? null,
-      phone: typeof phone === "string" ? phone : null,
+      mobile: trimmedMobile,
+      houseNo: typeof houseNo === "string" && houseNo.trim() ? houseNo.trim() : null,
+      floorNo: typeof floorNo === "string" && floorNo.trim() ? floorNo.trim() : null,
       role: "CUSTOMER",
     },
   });
 
-  res.status(201).json({ id: user.id, shopId: user.shopId, role: user.role, name: user.name });
+  res.status(201).json({
+    id: user.id,
+    name: user.name,
+    mobile: user.mobile,
+    shopId: user.shopId,
+    role: user.role,
+    houseNo: user.houseNo,
+    floorNo: user.floorNo,
+  });
 });

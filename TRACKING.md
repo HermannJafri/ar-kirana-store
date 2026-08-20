@@ -156,6 +156,64 @@ to transition through statuses) — clear all of this before Phase 7's real cata
 
 ---
 
+## Feature branch: `feature/simplified-customer-flow`
+
+Branched off `main` at commit `41fc054` (Phases 1-3 baseline). `main` is untouched.
+Working through Phases A-F below, stopping after each for review before continuing —
+same workflow as Phases 1-3 above.
+
+### Phase A — Customer auth removal & profile-first flow
+
+Backend: `POST /auth/register` rewritten — no Firebase token, find-or-create by
+`mobile` (unique), returns the `User.id` the client uses as its credential from then
+on. New `identify` middleware (`backend/src/middleware/auth.ts`) accepts either a
+Firebase Bearer token (Staff/Owner/Delivery) or an `X-Customer-Id` header (Customer)
+on the routes both need (`GET /products`, `POST /orders`, `GET /me`); Staff-only
+mutations (`POST`/`PATCH`/`DELETE /products`, `/shop`, `/uploads`) still require
+`authenticate` (Firebase) exclusively, unchanged. Schema: `firebaseUid` now
+optional, `phone` renamed to `mobile` + made unique, added `houseNo`/`floorNo`.
+Trade-off documented in PROJECT_PROMPT.md ("Customer identity trade-off").
+
+Flutter: removed `firebase_core`/`firebase_auth` entirely, deleted
+`login_screen.dart`/`signup_screen.dart`/the old `auth_service.dart`. New
+`ProfileFormScreen` (name/mobile/houseNo/floorNo, no password) on first launch;
+`CustomerService` + `CustomerStorage` (via `flutter_secure_storage`) replace Firebase
+auth state — the device-issued id persists locally and is sent as `X-Customer-Id` on
+every `ApiService` call. `AuthGate` simplified to just: loading → form (no stored id)
+→ product browse (stored id restored) — no more role-branching, since only Customers
+use this app until Phase 5 adds Delivery back in with its own Firebase login.
+
+- [x] Firebase email/password auth removed from the Flutter customer app — confirmed via `flutter analyze` (0 errors) and by grepping the whole `lib/` tree for any remaining `firebase` import (none).
+- [x] First-launch profile form (name, mobile, house/flat no, floor no), no password — built and verified for real on the Android emulator: form renders, all four fields fill and submit correctly.
+- [x] Backend creates a `User` row (role=CUSTOMER) with unique `mobile`, returns a generated id — verified against the live DB: registered a real test customer (`9998887777`), confirmed the `User` row exists with `firebaseUid: null`, correct `mobile`/`houseNo`/`floorNo`.
+- [x] Device-issued id stored via secure storage, sent as `X-Customer-Id` on subsequent calls instead of a Firebase token — verified two ways: (1) direct `curl` with the header against `/me`, `/products` succeeded, a bogus id correctly got 403; (2) on-device: force-stopped and relaunched the app (real process death, not hot reload) and it went straight to the product list with no form shown again, proving the stored id actually persisted and was accepted.
+- [x] Backend `identify` middleware: Customer routes (browse, place order, own profile) accept `X-Customer-Id`; Staff/Owner/Delivery routes still require Firebase — verified: `X-Customer-Id` correctly rejected with 401 on a staff-only route (`POST /products`); existing Firebase flow (Owner login → `/me`, `/products`, `PATCH /shop`) re-tested and still works unchanged, no regression.
+- [x] `mobile` unique constraint + `houseNo`/`floorNo` added to `User`, migrated — migration `20260820220000_customer_device_auth` applied to the live Supabase DB.
+- [x] Trade-off documented in PROJECT_PROMPT.md — new "Customer identity trade-off" section: what's given up (unverified mobile, forgeable bearer id, no account recovery), why it's acceptable now (small known customer base, COD means no money at risk), and what triggers revisiting it (SMS OTP, if the customer base grows or abuse happens).
+
+**Verified this phase:** backend `tsc --noEmit` clean; Flutter `flutter analyze` clean (0 errors, 4 pre-existing info-level lints) and `flutter test` passes (rewrote the one existing widget test, which referenced the now-deleted `LoginScreen`, to test `ProfileFormScreen` instead). Full registration flow driven for real on the emulator, confirmed against the live DB via direct Prisma queries, not just screen appearance — including a real app restart (not hot reload) to prove local persistence.
+
+**Also fixed during this phase:** found a real `.env` vs `.env.example` situation before
+committing — `backend/creds/ar-kirana-store-firebase-adminsdk-fbsvc-*.json` (a full
+Firebase service-account key, presumably downloaded at some point outside this
+session) was sitting un-gitignored and got caught by `git add -A` right before the
+first commit. Unstaged it, added `creds/` to `backend/.gitignore`, and added a
+root-level `.gitignore` as a defense-in-depth backstop for credential-shaped files
+anywhere in the repo. Nothing sensitive was ever committed — this was caught before
+the first commit existed.
+
+**Test fixtures now in the live DB (cumulative):** all Phase 1-3 fixtures, plus
+customer `9998887777` ("Phase A Customer", id `dbd1c972...`) with no orders. Same
+"clear before Phase 7 real catalog entry" note applies.
+
+### Phase B — Dashboard: username-based login — not started
+### Phase C — Dashboard: inventory, search, categories — not started
+### Phase D — Dashboard: order visibility & notifications — not started
+### Phase E — Customer app: order history & bill — not started
+### Phase F — Dashboard: sales analytics sidebar — not started
+
+---
+
 ## Deferred / Phase 2+ (not in current scope)
 
 - [ ] Razorpay online payment integration
