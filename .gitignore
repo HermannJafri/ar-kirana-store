@@ -1,0 +1,12 @@
+# Defense-in-depth: catch credential files anywhere in the repo, even if a
+# subproject's own .gitignore misses one. Subprojects (backend/, dashboard/,
+# mobile-app/) have their own more complete .gitignore files for build
+# artifacts, node_modules, etc. — this is just the secrets backstop.
+**/creds/
+**/*firebase-adminsdk*.json
+**/google-services.json
+**/GoogleService-Info.plist
+**/*.pem
+**/*.key
+.env
+.env.local

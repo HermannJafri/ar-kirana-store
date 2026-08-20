@@ -1,0 +1,143 @@
+// Kirana Store App - Prisma Schema
+// DB: Supabase (Postgres)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- ENUMS ----------
+
+enum UserRole {
+  CUSTOMER
+  STAFF
+  OWNER
+  DELIVERY
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PICKING
+  PACKED
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  COLLECTED
+}
+
+// ---------- CORE ----------
+
+model Shop {
+  id        String   @id @default(uuid())
+  name      String
+  address   String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  users    User[]
+  products Product[]
+  orders   Order[]
+}
+
+model User {
+  id          String @id @default(uuid())
+  shopId      String
+  shop        Shop   @relation(fields: [shopId], references: [id])
+
+  firebaseUid String   @unique // Firebase Auth link
+  name        String
+  email       String?  @unique
+  phone       String?
+  role        UserRole
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  ordersAsCustomer Order[] @relation("CustomerOrders")
+  ordersAsDelivery Order[] @relation("DeliveryOrders")
+
+  @@index([shopId])
+  @@index([shopId, role])
+}
+
+model Product {
+  id     String @id @default(uuid())
+  shopId String
+  shop   Shop   @relation(fields: [shopId], references: [id])
+
+  name        String
+  description String?
+  imageUrl    String? // Cloudinary URL
+  price       Decimal @db.Decimal(10, 2)
+  unit        String? // e.g. "kg", "pack", "pc"
+
+  quantityAvailable Int     @default(0)
+  isAvailable       Boolean @default(true)
+
+  // Phase 2 (barcode) - kept nullable for now
+  barcode String? @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orderItems OrderItem[]
+
+  @@index([shopId])
+  @@index([shopId, isAvailable])
+}
+
+model Order {
+  id     String @id @default(uuid())
+  shopId String
+  shop   Shop   @relation(fields: [shopId], references: [id])
+
+  customerId String
+  customer   User   @relation("CustomerOrders", fields: [customerId], references: [id])
+
+  deliveryBoyId String?
+  deliveryBoy   User?   @relation("DeliveryOrders", fields: [deliveryBoyId], references: [id])
+
+  status        OrderStatus   @default(PENDING)
+  paymentStatus PaymentStatus @default(PENDING)
+  totalAmount   Decimal       @db.Decimal(10, 2)
+
+  deliveryAddress String?
+  notes           String?
+
+  createdAt        DateTime  @default(now())
+  confirmedAt       DateTime?
+  packedAt          DateTime?
+  outForDeliveryAt  DateTime?
+  deliveredAt       DateTime?
+  cancelledAt        DateTime?
+
+  items OrderItem[]
+
+  @@index([shopId, status])
+  @@index([customerId])
+  @@index([deliveryBoyId])
+}
+
+model OrderItem {
+  id      String @id @default(uuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id])
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+
+  quantity     Int
+  priceAtOrder Decimal @db.Decimal(10, 2) // snapshot price at order time
+
+  @@index([orderId])
+  @@index([productId])
+}
