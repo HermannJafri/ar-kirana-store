@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 import '../models/product.dart';
 import '../providers/cart_provider.dart';
 import '../services/api_service.dart';
-import '../services/customer_service.dart';
+import '../services/auth_service.dart';
 import 'cart_screen.dart';
 import 'product_detail_screen.dart';
 
@@ -57,7 +57,7 @@ class _ProductBrowseScreenState extends State<ProductBrowseScreen> {
           IconButton(
             tooltip: 'Log out',
             icon: const Icon(Icons.logout),
-            onPressed: () => context.read<CustomerService>().signOut(),
+            onPressed: () => context.read<AuthService>().signOut(),
           ),
           Stack(
             alignment: Alignment.center,

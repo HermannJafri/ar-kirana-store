@@ -164,34 +164,64 @@ same workflow as Phases 1-3 above.
 
 ### Phase A — Customer auth removal & profile-first flow
 
-Backend: `POST /auth/register` rewritten — no Firebase token, find-or-create by
-`mobile` (unique), returns the `User.id` the client uses as its credential from then
-on. New `identify` middleware (`backend/src/middleware/auth.ts`) accepts either a
-Firebase Bearer token (Staff/Owner/Delivery) or an `X-Customer-Id` header (Customer)
-on the routes both need (`GET /products`, `POST /orders`, `GET /me`); Staff-only
-mutations (`POST`/`PATCH`/`DELETE /products`, `/shop`, `/uploads`) still require
-`authenticate` (Firebase) exclusively, unchanged. Schema: `firebaseUid` now
-optional, `phone` renamed to `mobile` + made unique, added `houseNo`/`floorNo`.
-Trade-off documented in PROJECT_PROMPT.md ("Customer identity trade-off").
+**Revised 2026-08-21** (superseding the first version of Phase A below the line): the
+device-ID/mobile-only approach was replaced with username + password over Firebase —
+same `username@internal.local` synthetic-email pattern the dashboard uses for
+Staff/Owner — specifically to close the "anyone can order under someone else's name
+with just a phone number" gap. Added a mandatory address-capture step (on-device GPS,
+Haversine distance against the shop's configured location, no geocoding API) gating
+first access to the product catalog. The `identify` middleware / `X-Customer-Id`
+mechanism from the first version was fully removed — every role now goes through the
+same Firebase `authenticate` middleware, which is a net simplification.
 
-Flutter: removed `firebase_core`/`firebase_auth` entirely, deleted
-`login_screen.dart`/`signup_screen.dart`/the old `auth_service.dart`. New
-`ProfileFormScreen` (name/mobile/houseNo/floorNo, no password) on first launch;
-`CustomerService` + `CustomerStorage` (via `flutter_secure_storage`) replace Firebase
-auth state — the device-issued id persists locally and is sent as `X-Customer-Id` on
-every `ApiService` call. `AuthGate` simplified to just: loading → form (no stored id)
-→ product browse (stored id restored) — no more role-branching, since only Customers
-use this app until Phase 5 adds Delivery back in with its own Firebase login.
+Backend: `POST /auth/register` verifies a Firebase ID token directly (no `User` row
+exists yet) and creates one with a unique `username`; `mobile` is now optional/contact-
+only, no longer unique. New `POST /me/address` (Customer only): accepts
+`houseNo`/`floorNo`/`area`/`latitude`/`longitude`, computes Haversine distance
+(`backend/src/lib/geo.ts`) against `Shop.latitude`/`longitude`, rejects with a plain
+"Delivery isn't available at this address yet" (never raw coordinates/distance) if
+outside `Shop.deliveryRadiusKm`; if the shop hasn't set a location yet, every address
+is accepted (documented fallback, not a silent bug). `PATCH /shop` extended to accept
+`latitude`/`longitude`/`deliveryRadiusKm` (Owner only). Schema: `User.username`
+(unique) + `User.area`/`latitude`/`longitude` added, `mobile` uniqueness dropped;
+`Shop.latitude`/`longitude`/`deliveryRadiusKm` (default 2) added. Migration
+`20260821000000_username_address_geo` applied to the live DB; the two orphaned
+device-ID-only customer rows from the first version (no Firebase account, unreachable
+under the new scheme) were deleted first.
 
-- [x] Firebase email/password auth removed from the Flutter customer app — confirmed via `flutter analyze` (0 errors) and by grepping the whole `lib/` tree for any remaining `firebase` import (none).
-- [x] First-launch profile form (name, mobile, house/flat no, floor no), no password — built and verified for real on the Android emulator: form renders, all four fields fill and submit correctly.
-- [x] Backend creates a `User` row (role=CUSTOMER) with unique `mobile`, returns a generated id — verified against the live DB: registered a real test customer (`9998887777`), confirmed the `User` row exists with `firebaseUid: null`, correct `mobile`/`houseNo`/`floorNo`.
-- [x] Device-issued id stored via secure storage, sent as `X-Customer-Id` on subsequent calls instead of a Firebase token — verified two ways: (1) direct `curl` with the header against `/me`, `/products` succeeded, a bogus id correctly got 403; (2) on-device: force-stopped and relaunched the app (real process death, not hot reload) and it went straight to the product list with no form shown again, proving the stored id actually persisted and was accepted.
-- [x] Backend `identify` middleware: Customer routes (browse, place order, own profile) accept `X-Customer-Id`; Staff/Owner/Delivery routes still require Firebase — verified: `X-Customer-Id` correctly rejected with 401 on a staff-only route (`POST /products`); existing Firebase flow (Owner login → `/me`, `/products`, `PATCH /shop`) re-tested and still works unchanged, no regression.
-- [x] `mobile` unique constraint + `houseNo`/`floorNo` added to `User`, migrated — migration `20260820220000_customer_device_auth` applied to the live Supabase DB.
-- [x] Trade-off documented in PROJECT_PROMPT.md — new "Customer identity trade-off" section: what's given up (unverified mobile, forgeable bearer id, no account recovery), why it's acceptable now (small known customer base, COD means no money at risk), and what triggers revisiting it (SMS OTP, if the customer base grows or abuse happens).
+Dashboard: Settings page gained a "Delivery service area" section — "Use current
+location" (browser Geolocation API) plus manual lat/lng/radius fields, saved via the
+extended `PATCH /shop`.
 
-**Verified this phase:** backend `tsc --noEmit` clean; Flutter `flutter analyze` clean (0 errors, 4 pre-existing info-level lints) and `flutter test` passes (rewrote the one existing widget test, which referenced the now-deleted `LoginScreen`, to test `ProfileFormScreen` instead). Full registration flow driven for real on the emulator, confirmed against the live DB via direct Prisma queries, not just screen appearance — including a real app restart (not hot reload) to prove local persistence.
+Flutter: `firebase_core`/`firebase_auth` reinstated, `flutter_secure_storage` removed
+(Firebase persists its own session — no longer needed). `login_screen.dart` /
+`signup_screen.dart` recreated with username instead of email. New
+`AddressFormScreen` (house/floor/area + "Use my current location" via the
+`geolocator` package). `AuthGate`: loading → not logged in → login/signup → logged in
+without a saved address (`latitude`/`longitude` null) → address form → product
+browse. Android manifest updated with `ACCESS_FINE_LOCATION`/`ACCESS_COARSE_LOCATION`.
+
+- [x] Username + password via Firebase (`username@internal.local` mapping) — verified on-device: signed up a real account (with the Sign Up screen initially, then via direct Firebase REST + backend register to control fixture state precisely), logged out, logged back in through the actual UI login form, landed correctly post-auth. This directly closes the impersonation gap the mobile-only approach had.
+- [x] Address form (house/floor/area + GPS) shown on first login, skipped on return visits — verified on-device both ways: a customer with `latitude`/`longitude` already set went straight to the product catalog on login (no form shown); a customer without one was correctly routed to the address form.
+- [x] `Shop.latitude`/`longitude`/`deliveryRadiusKm` added, dashboard "Use current location" control — built and typechecked (`tsc --noEmit` clean); not exercised in a browser this session (no time left after the mobile-side debugging below) — worth a quick manual check before Phase B.
+- [x] Backend Haversine distance check, generic rejection message, no coordinates/distance ever exposed — **fully verified against the live DB**, both directions: set the shop's location via `PATCH /shop`, then via direct `curl` (matching the app's exact request shape) submitted an out-of-radius address → `422 {"error":"Delivery isn't available at this address yet"}`, confirmed via `GET /me` that nothing was persisted; submitted an in-radius address for a different customer → `200`, confirmed the row was saved correctly.
+- [x] Out-of-radius rejection demonstrated live, on-device, with real GPS — driven through the actual UI early in this session: tapped "Use my current location" (captured the emulator's real default mock location, nowhere near the shop), submitted, got the exact "Delivery isn't available at this address yet" message on-screen, confirmed via direct DB query that no address was saved. Screenshotted.
+- [~] In-radius acceptance demonstrated live, on-device — **not re-confirmed after an emulator crash cascade** (see below). The backend logic behind it is the same one just proven for rejection, and is separately confirmed correct via direct `curl` with the app's exact request shape (see above) — but I did not get a second on-device screenshot of "Location captured" → "Continue" → success screen after the environment degraded. Recommend a quick manual retry on your end, or ask me to redo it in a fresh session.
+
+**What went wrong on the tooling side, for the record:** partway through on-device
+testing, a Gradle build daemon OOM-crashed (this machine has ~7.7GB RAM total; the
+Flutter template's default `-Xmx8G` for Gradle was the direct cause — turned down to
+`-Xmx2G` in `android/gradle.properties`, worth keeping). Recovering from that
+(emulator restart, backend restart after a dropped DB connection, app reinstall)
+left the emulator in a state where one specific button (`OutlinedButton.icon` /
+"Use my current location") stopped responding to taps — confirmed this wasn't a
+coordinate-targeting mistake (the *same* pixel-verified coordinates that failed on
+this button worked fine on the Login/Continue buttons moments apart, and the
+button's own loading spinner never appeared even once across ~8 attempts, which
+only happens if `onPressed` never fires at all). This exact button had already
+worked correctly earlier in the same session, before the crash cascade, so this
+reads as environment/rendering flakiness under memory pressure, not a code defect
+— but I'm flagging it plainly rather than papering over an unresolved loose end.
 
 **Also fixed during this phase:** found a real `.env` vs `.env.example` situation before
 committing — `backend/creds/ar-kirana-store-firebase-adminsdk-fbsvc-*.json` (a full
@@ -203,8 +233,26 @@ anywhere in the repo. Nothing sensitive was ever committed — this was caught b
 the first commit existed.
 
 **Test fixtures now in the live DB (cumulative):** all Phase 1-3 fixtures, plus
-customer `9998887777` ("Phase A Customer", id `dbd1c972...`) with no orders. Same
-"clear before Phase 7 real catalog entry" note applies.
+customers `phaseA2`/`phaseA3`/`phaseaccept` (various address states) under the new
+username scheme. The original mobile-only Phase A fixtures were deleted (unreachable
+under the new auth). Clear all of this before Phase 7's real catalog entry.
+
+---
+
+<details>
+<summary>First version of Phase A (device-ID/mobile-only auth) — superseded above, kept for history</summary>
+
+Backend: `POST /auth/register` — no Firebase token, find-or-create by `mobile`
+(unique), returns the `User.id` the client uses as its credential from then on. New
+`identify` middleware accepted either a Firebase Bearer token or an `X-Customer-Id`
+header on shared routes. Flutter: removed Firebase entirely, added
+`flutter_secure_storage` for the device-issued id, `ProfileFormScreen` in place of
+login. Fully verified at the time (registration, persistence across a real app
+restart, middleware role-gating, no regression on the Firebase path) — see git log
+on this branch for the original commit if needed. Replaced because it allowed
+ordering under anyone's phone number with no verification at all.
+
+</details>
 
 ### Phase B — Dashboard: username-based login — not started
 ### Phase C — Dashboard: inventory, search, categories — not started

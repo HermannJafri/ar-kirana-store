@@ -73,10 +73,16 @@ misconfigured client, but it is not the access-control mechanism the app relies 
 
 Use the Prisma schema already drafted (`schema.prisma`) as the source of truth:
 
-- `Shop` — has `id`, supports multi-shop from day one even though only one shop exists now
-- `User` — `role` enum: CUSTOMER, STAFF, OWNER, DELIVERY. Staff/Owner/Delivery are
-  linked to Firebase via `firebaseUid`; Customers instead have a unique `mobile` and
-  no `firebaseUid` — see "Customer identity trade-off" below
+- `Shop` — has `id`, supports multi-shop from day one even though only one shop exists
+  now. Also carries `latitude`/`longitude`/`deliveryRadiusKm` (owner-configurable from
+  the dashboard) used to validate customer addresses — see "Customer identity
+  trade-off" below.
+- `User` — `role` enum: CUSTOMER, STAFF, OWNER, DELIVERY. Every role authenticates via
+  Firebase (`firebaseUid`); Customers use a `username` mapped to a synthetic
+  `username@internal.local` email rather than a real one — see "Customer identity
+  trade-off" below. `mobile` is contact-only (not unique, not an identifier).
+  Customers also carry `houseNo`/`floorNo`/`area`/`latitude`/`longitude` for their
+  delivery address.
 - `Product` — belongs to a shop, has price, quantityAvailable, isAvailable, nullable `barcode`
   field reserved for Phase 2
 - `Order` — status flow: PENDING → CONFIRMED → PICKING → PACKED → OUT_FOR_DELIVERY → DELIVERED
@@ -91,17 +97,12 @@ Do not remove this even though there's only one shop right now.
 
 ## Access control
 
-Enforced in the Express backend, not in the database, via two credential types
-depending on who's calling:
+Enforced in the Express backend, not in the database. Every role — Customer
+included, see "Customer identity trade-off" below — authenticates the same way:
 - `authenticate` middleware verifies a Firebase ID token and resolves it to a `User`
-  row (`shopId`, `role`) via Prisma. Used by Staff/Owner (dashboard) and, once built,
-  Delivery (Phase 5 mobile screens).
-- `identify` middleware accepts *either* a Firebase token *or* an `X-Customer-Id`
-  header (see "Customer identity trade-off" below) and resolves either to the same
-  `req.user` shape — used on routes Customers and Staff/Owner both need, like
-  browsing products or placing an order.
+  row (`shopId`, `role`) via Prisma. Every route requires this.
 - `requireRole(...)` middleware restricts a route to specific roles, chained after
-  either of the above.
+  `authenticate`.
 - Route handlers scope every query by `req.user.shopId` (and by `customerId` /
   `deliveryBoyId` where relevant) — the same rules that were originally drafted as RLS
   policies now live here instead:
@@ -118,36 +119,50 @@ not the primary mechanism — see that file's header comment for details.
 
 ## Customer identity trade-off
 
-**Decision (feature/simplified-customer-flow, Phase A):** Customers do not use
-Firebase Auth and have no password. On first launch the app asks for name, mobile
-number, and a delivery address (house/flat no, floor no), and the backend
-find-or-creates a `User` row keyed on `mobile` (unique) and hands back its `id`. The
-app stores that `id` in secure on-device storage and sends it as `X-Customer-Id` on
-every request from then on — no login screen, no OTP, ever.
+**Decision (feature/simplified-customer-flow, Phase A, revised 2026-08-21):**
+Customers authenticate via Firebase, same as Staff/Owner/Delivery, but only ever
+see/enter a **username** — the client maps it to a synthetic
+`username@internal.local` email under the hood (`usernameToEmail()` in
+`mobile-app/lib/services/auth_service.dart`), so no real email is ever collected. A
+real password is required, closing the earlier gap where anyone could place an
+order under someone else's identity with just a phone number (the first version of
+this decision, see git history / `TRACKING.md`'s superseded section, used a
+device-issued id with no password at all — replaced for exactly that reason).
+`mobile` is now optional and contact-only (not unique, not an identifier).
+
+On first login, a customer with no saved address (`latitude`/`longitude` null) is
+required to complete an address form before reaching the product catalog: house/flat
+no, floor no, area, and a location captured via on-device GPS (the `geolocator`
+package — no paid geocoding API). The backend checks that location against the
+shop's own `latitude`/`longitude`/`deliveryRadiusKm` (owner-configured from the
+dashboard Settings page) using plain Haversine distance
+(`backend/src/lib/geo.ts`) and rejects out-of-range addresses with a generic
+"Delivery isn't available at this address yet" — raw coordinates and computed
+distance are never returned to the client. Returning customers with an address
+already on file skip this entirely.
 
 **What this gives up, deliberately:**
-- The `X-Customer-Id` header is a bearer credential, not a verified token. Anyone who
-  obtains a customer's `id` can place orders and read that customer's order history as
-  them. There's no signature, no expiry, no way to detect a forged id short of it not
-  existing in the `User` table.
-- Mobile number is unverified — no SMS OTP confirms the customer actually owns that
-  number. A customer can register with anyone else's number.
-- Losing the device (without a backup of app data) means losing the account with no
-  recovery path beyond re-registering with the same mobile number, which the backend
-  treats as "this is the same customer" (find-or-create in `POST /auth/register`).
+- No SMS OTP verifies the mobile number (it's contact-only now, not identifying, so
+  this matters less than it did in the first version of this decision).
+- No email verification either — `username@internal.local` isn't a real,
+  ownership-verifiable address, so account recovery if a customer forgets their
+  password has no "reset link" path; recovery would currently mean the owner
+  manually resetting it via the Firebase Admin SDK.
+- The address radius check trusts whatever coordinates the device reports — a
+  customer could spoof GPS to appear within range. Low stakes for a COD-only,
+  locally-delivered small business, but worth naming.
 
 **Why this is acceptable right now:** the store's entire customer base is ~30-40
 known people within a 1-2km radius — friends, family, and regular walk-in customers
-the shopkeeper already knows by name. The blast radius of someone impersonating a
-customer (placing a COD order in their name) is low and locally recoverable — this
-isn't a payment credential, and Cash on Delivery means no money moves until a real
-human hands over real goods at a real door.
+the shopkeeper already knows by name. Cash on Delivery means no money moves until a
+real human hands over real goods at a real door, so the cost of an edge case here is
+low and locally recoverable.
 
 **Revisit this when:** the customer base grows beyond people the shopkeeper
 personally knows, if online payment is ever added (Phase 2+, currently out of
-scope), or if impersonation/abuse actually happens. The fix at that point is SMS OTP
-verification of the mobile number — the schema and `X-Customer-Id` mechanism don't
-block adding that later, but do not build it now.
+scope), or if password-reset requests become frequent enough that manual Admin SDK
+resets aren't sustainable (at that point, a real "recovery email" field — separate
+from the login identity — would be the fix).
 
 ---
 

@@ -43,6 +43,13 @@ model Shop {
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
 
+  // Shop's own coordinates + delivery service radius, used to validate
+  // customer addresses at signup (Haversine distance, no external geocoding
+  // API — see backend/src/lib/geo.ts). Owner sets these from the dashboard.
+  latitude         Float?
+  longitude        Float?
+  deliveryRadiusKm Float  @default(2)
+
   users    User[]
   products Product[]
   orders   Order[]
@@ -53,17 +60,25 @@ model User {
   shopId      String
   shop        Shop   @relation(fields: [shopId], references: [id])
 
-  // Firebase Auth link — Staff/Owner/Delivery only. Customers are identified
-  // by a device-issued id instead (see mobile below, and PROJECT_PROMPT.md
-  // "Customer identity trade-off" for why).
+  // Firebase Auth link for every role, including Customer — see
+  // PROJECT_PROMPT.md "Customer identity trade-off" for the auth history.
+  // Customers sign in with a username, mapped to a `username@internal.local`
+  // Firebase email under the hood (never a real email) — same pattern
+  // Staff/Owner use.
   firebaseUid String?  @unique
   name        String
   email       String?  @unique
-  // Customer identifier: the phone number they registered with, no password.
-  // Staff/Owner/Delivery leave this null.
-  mobile      String?  @unique
+  username    String?  @unique
+  // Contact only, not an identifier — not unique, not required.
+  mobile      String?
   houseNo     String?
   floorNo     String?
+  area        String?
+  // Customer's delivery coordinates, captured via on-device GPS and
+  // validated against Shop.deliveryRadiusKm at signup. Null until the
+  // address form is completed.
+  latitude    Float?
+  longitude   Float?
   role        UserRole
 
   isActive  Boolean  @default(true)

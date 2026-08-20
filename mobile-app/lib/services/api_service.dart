@@ -1,7 +1,7 @@
 import 'dart:convert';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
-import 'customer_storage.dart';
 
 class ApiException implements Exception {
   final String message;
@@ -10,28 +10,28 @@ class ApiException implements Exception {
   String toString() => message;
 }
 
-/// Attaches the device-issued customer id (X-Customer-Id) to every backend
-/// request instead of a Firebase token — see PROJECT_PROMPT.md "Customer
-/// identity trade-off". Mirrors dashboard/src/lib/api.ts's authFetch, minus
-/// the token.
+/// Attaches the current Firebase ID token to every backend request. Every
+/// read and write goes through the Express backend — see PROJECT_PROMPT.md
+/// ("Why every data access goes through the backend"). Mirrors
+/// dashboard/src/lib/api.ts's authFetch.
 class ApiService {
   static String get _baseUrl => dotenv.env['API_BASE_URL'] ?? 'http://10.0.2.2:4000';
 
-  static Future<dynamic> _request(
+  static Future<dynamic> _authFetch(
     String path, {
     String method = 'GET',
     Map<String, dynamic>? body,
-    bool requireAuth = true,
   }) async {
-    final headers = {'Content-Type': 'application/json'};
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) throw ApiException('Not authenticated');
 
-    if (requireAuth) {
-      final customerId = await CustomerStorage.readId();
-      if (customerId == null) throw ApiException('Not registered on this device');
-      headers['X-Customer-Id'] = customerId;
-    }
-
+    final token = await user.getIdToken();
     final uri = Uri.parse('$_baseUrl$path');
+    final headers = {
+      'Authorization': 'Bearer $token',
+      'Content-Type': 'application/json',
+    };
+
     late http.Response response;
     switch (method) {
       case 'POST':
@@ -61,33 +61,46 @@ class ApiService {
   }
 
   static Future<List<dynamic>> getProducts() async {
-    final data = await _request('/products');
+    final data = await _authFetch('/products');
     return data as List<dynamic>;
   }
 
   static Future<Map<String, dynamic>> getMe() async {
-    final data = await _request('/me');
+    final data = await _authFetch('/me');
     return data as Map<String, dynamic>;
   }
 
-  // No stored id yet at this point — this call establishes one.
+  // Called right after Firebase createUserWithEmailAndPassword succeeds —
+  // there's a Firebase user (so _authFetch can attach a token) but no User
+  // row yet; the backend verifies the token directly rather than via its
+  // usual req.user lookup.
   static Future<Map<String, dynamic>> registerCustomer({
     required String name,
-    required String mobile,
+    required String username,
+    String? mobile,
+  }) async {
+    final data = await _authFetch('/auth/register', method: 'POST', body: {
+      'name': name,
+      'username': username,
+      if (mobile != null && mobile.isNotEmpty) 'mobile': mobile,
+    });
+    return data as Map<String, dynamic>;
+  }
+
+  static Future<Map<String, dynamic>> submitAddress({
     String? houseNo,
     String? floorNo,
+    String? area,
+    required double latitude,
+    required double longitude,
   }) async {
-    final data = await _request(
-      '/auth/register',
-      method: 'POST',
-      requireAuth: false,
-      body: {
-        'name': name,
-        'mobile': mobile,
-        if (houseNo != null) 'houseNo': houseNo,
-        if (floorNo != null) 'floorNo': floorNo,
-      },
-    );
+    final data = await _authFetch('/me/address', method: 'POST', body: {
+      if (houseNo != null && houseNo.isNotEmpty) 'houseNo': houseNo,
+      if (floorNo != null && floorNo.isNotEmpty) 'floorNo': floorNo,
+      if (area != null && area.isNotEmpty) 'area': area,
+      'latitude': latitude,
+      'longitude': longitude,
+    });
     return data as Map<String, dynamic>;
   }
 
@@ -96,7 +109,7 @@ class ApiService {
     String? deliveryAddress,
     String? notes,
   }) async {
-    final data = await _request('/orders', method: 'POST', body: {
+    final data = await _authFetch('/orders', method: 'POST', body: {
       'items': items,
       if (deliveryAddress != null) 'deliveryAddress': deliveryAddress,
       if (notes != null) 'notes': notes,

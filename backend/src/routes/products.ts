@@ -1,12 +1,13 @@
 import { Router } from "express";
 import { prisma } from "../lib/prisma";
-import { authenticate, identify, requireRole } from "../middleware/auth";
+import { authenticate, requireRole } from "../middleware/auth";
 
 export const productsRouter = Router();
 
-// GET is shared with Customers (browsing), so it uses `identify` rather than
-// the router-level Firebase-only `authenticate` the mutations below use.
-productsRouter.get("/", identify, async (req, res) => {
+productsRouter.use(authenticate);
+
+// GET /products - list all products for the caller's own shop
+productsRouter.get("/", async (req, res) => {
   const products = await prisma.product.findMany({
     where: { shopId: req.user!.shopId },
     orderBy: { createdAt: "desc" },
@@ -15,7 +16,7 @@ productsRouter.get("/", identify, async (req, res) => {
 });
 
 // POST /products - create a product in the caller's own shop (Staff/Owner only)
-productsRouter.post("/", authenticate, requireRole("STAFF", "OWNER"), async (req, res) => {
+productsRouter.post("/", requireRole("STAFF", "OWNER"), async (req, res) => {
   const { name, description, imageUrl, price, unit, quantityAvailable, isAvailable } =
     req.body ?? {};
 
@@ -53,7 +54,7 @@ productsRouter.post("/", authenticate, requireRole("STAFF", "OWNER"), async (req
 });
 
 // PATCH /products/:id - update a product in the caller's own shop (Staff/Owner only)
-productsRouter.patch("/:id", authenticate, requireRole("STAFF", "OWNER"), async (req, res) => {
+productsRouter.patch("/:id", requireRole("STAFF", "OWNER"), async (req, res) => {
   const existing = await prisma.product.findUnique({ where: { id: req.params.id } });
   if (!existing || existing.shopId !== req.user!.shopId) {
     res.status(404).json({ error: "Product not found" });
@@ -98,7 +99,7 @@ productsRouter.patch("/:id", authenticate, requireRole("STAFF", "OWNER"), async 
 // DELETE /products/:id - deactivate a product in the caller's own shop (Staff/Owner only).
 // Soft delete only (isAvailable = false), matching the User.isActive pattern — never
 // hard-deleted since historical OrderItems reference products by id.
-productsRouter.delete("/:id", authenticate, requireRole("STAFF", "OWNER"), async (req, res) => {
+productsRouter.delete("/:id", requireRole("STAFF", "OWNER"), async (req, res) => {
   const existing = await prisma.product.findUnique({ where: { id: req.params.id } });
   if (!existing || existing.shopId !== req.user!.shopId) {
     res.status(404).json({ error: "Product not found" });
