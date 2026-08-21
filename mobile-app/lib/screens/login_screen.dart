@@ -12,7 +12,7 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _usernameController = TextEditingController();
+  final _mobileController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _loading = false;
   String? _error;
@@ -24,9 +24,9 @@ class _LoginScreenState extends State<LoginScreen> {
       _error = null;
     });
     try {
-      await context.read<AuthService>().signIn(_usernameController.text.trim(), _passwordController.text);
+      await context.read<AuthService>().signIn(_mobileController.text.trim(), _passwordController.text);
     } catch (_) {
-      setState(() => _error = 'Invalid username or password.');
+      setState(() => _error = 'Invalid mobile number or password.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -60,10 +60,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: 16),
                 ],
                 TextFormField(
-                  controller: _usernameController,
-                  decoration: const InputDecoration(labelText: 'Username', border: OutlineInputBorder()),
-                  autocorrect: false,
-                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Enter your username' : null,
+                  controller: _mobileController,
+                  decoration: const InputDecoration(labelText: 'Mobile number', border: OutlineInputBorder()),
+                  keyboardType: TextInputType.phone,
+                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Enter your mobile number' : null,
                 ),
                 const SizedBox(height: 16),
                 TextFormField(

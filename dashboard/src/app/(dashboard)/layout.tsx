@@ -9,6 +9,7 @@ import {
   UnorderedListOutlined,
   SettingOutlined,
   BarChartOutlined,
+  TeamOutlined,
 } from "@ant-design/icons";
 import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
@@ -99,6 +100,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </span>
       ),
     },
+    { key: "/customers", icon: <TeamOutlined />, label: "Customers" },
     ...(profile.role === "OWNER"
       ? [
           { key: "/analytics", icon: <BarChartOutlined />, label: "Analytics" },

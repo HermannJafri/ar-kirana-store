@@ -10,6 +10,7 @@ import { authRouter } from "./routes/auth";
 import { ordersRouter } from "./routes/orders";
 import { categoriesRouter } from "./routes/categories";
 import { analyticsRouter } from "./routes/analytics";
+import { customersRouter } from "./routes/customers";
 
 const app = express();
 app.use(cors());
@@ -23,6 +24,7 @@ app.use("/auth", authRouter);
 app.use("/orders", ordersRouter);
 app.use("/categories", categoriesRouter);
 app.use("/analytics", analyticsRouter);
+app.use("/customers", customersRouter);
 
 app.get("/health", async (_req, res) => {
   try {

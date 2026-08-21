@@ -26,10 +26,10 @@ class _SignupScreenState extends State<SignupScreen> {
     });
     try {
       await context.read<AuthService>().signUp(
-            username: _usernameController.text.trim(),
+            mobile: _mobileController.text.trim(),
             password: _passwordController.text,
             name: _nameController.text.trim(),
-            mobile: _mobileController.text.trim().isEmpty ? null : _mobileController.text.trim(),
+            username: _usernameController.text.trim().isEmpty ? null : _usernameController.text.trim(),
           );
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
@@ -71,11 +71,23 @@ class _SignupScreenState extends State<SignupScreen> {
                 ),
                 const SizedBox(height: 16),
                 TextFormField(
-                  controller: _usernameController,
-                  decoration: const InputDecoration(labelText: 'Username', border: OutlineInputBorder()),
-                  autocorrect: false,
+                  controller: _mobileController,
+                  decoration: const InputDecoration(labelText: 'Mobile number', border: OutlineInputBorder()),
+                  keyboardType: TextInputType.phone,
                   validator: (v) =>
-                      (v == null || v.trim().length < 3) ? 'Username must be at least 3 characters' : null,
+                      (v == null || v.trim().length < 10) ? 'Enter a valid mobile number' : null,
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _usernameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Username (optional)',
+                    border: OutlineInputBorder(),
+                  ),
+                  autocorrect: false,
+                  validator: (v) => (v != null && v.trim().isNotEmpty && v.trim().length < 3)
+                      ? 'Username must be at least 3 characters'
+                      : null,
                 ),
                 const SizedBox(height: 16),
                 TextFormField(
@@ -84,15 +96,6 @@ class _SignupScreenState extends State<SignupScreen> {
                   obscureText: true,
                   validator: (v) =>
                       (v == null || v.length < 6) ? 'Password must be at least 6 characters' : null,
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _mobileController,
-                  decoration: const InputDecoration(
-                    labelText: 'Mobile number (optional, for delivery)',
-                    border: OutlineInputBorder(),
-                  ),
-                  keyboardType: TextInputType.phone,
                 ),
                 const SizedBox(height: 24),
                 FilledButton(

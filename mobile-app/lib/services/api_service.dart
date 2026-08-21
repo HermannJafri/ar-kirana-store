@@ -91,13 +91,13 @@ class ApiService {
   // usual req.user lookup.
   static Future<Map<String, dynamic>> registerCustomer({
     required String name,
-    required String username,
-    String? mobile,
+    required String mobile,
+    String? username,
   }) async {
     final data = await _authFetch('/auth/register', method: 'POST', body: {
       'name': name,
-      'username': username,
-      if (mobile != null && mobile.isNotEmpty) 'mobile': mobile,
+      'mobile': mobile,
+      if (username != null && username.isNotEmpty) 'username': username,
     });
     return data as Map<String, dynamic>;
   }

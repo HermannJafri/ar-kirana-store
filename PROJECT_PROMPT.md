@@ -80,10 +80,11 @@ Use the Prisma schema already drafted (`schema.prisma`) as the source of truth:
 - `User` — `role` enum: CUSTOMER, STAFF, OWNER. There is no separate DELIVERY role or
   login (**revised feature/simplified-customer-flow, 2026-08-21** — see "No separate
   delivery role" below); every role authenticates via Firebase (`firebaseUid`);
-  Customers use a `username` mapped to a synthetic `username@internal.local` email
-  rather than a real one — see "Customer identity trade-off" below. `mobile` is
-  contact-only (not unique, not an identifier). Customers also carry
-  `houseNo`/`floorNo`/`area`/`latitude`/`longitude` for their delivery address.
+  Customers use their `mobile` number mapped to a synthetic `<digits>@internal.local`
+  email rather than a real one — see "Customer identity trade-off" below; `username`
+  is optional for customers (still required for Staff/Owner dashboard login).
+  Customers also carry `houseNo`/`floorNo`/`area`/`latitude`/`longitude` for their
+  delivery address.
 - `Product` — belongs to a shop, has price, quantityAvailable, isAvailable, nullable `barcode`
   field reserved for Phase 2
 - `Order` — status flow: PENDING → CONFIRMED → OUT_FOR_DELIVERY → DELIVERED (or CANCELLED
@@ -122,16 +123,26 @@ not the primary mechanism — see that file's header comment for details.
 
 ## Customer identity trade-off
 
-**Decision (feature/simplified-customer-flow, Phase A, revised 2026-08-21):**
-Customers authenticate via Firebase, same as Staff/Owner/Delivery, but only ever
-see/enter a **username** — the client maps it to a synthetic
-`username@internal.local` email under the hood (`usernameToEmail()` in
+**Decision (feature/simplified-customer-flow, Phase A, revised 2026-08-21, login
+identifier revised again 2026-08-21):** Customers authenticate via Firebase, same as
+Staff/Owner, but only ever see/enter their **mobile number** — the client maps it to
+a synthetic `<digits>@internal.local` email under the hood (`mobileToEmail()` in
 `mobile-app/lib/services/auth_service.dart`), so no real email is ever collected. A
 real password is required, closing the earlier gap where anyone could place an
 order under someone else's identity with just a phone number (the first version of
 this decision, see git history / `TRACKING.md`'s superseded section, used a
 device-issued id with no password at all — replaced for exactly that reason).
-`mobile` is now optional and contact-only (not unique, not an identifier).
+`mobile` is mandatory at registration (enforced in the app layer, not a DB
+constraint — see below); `username` is now optional, kept only because Staff/Owner
+still log into the dashboard with one and some customers may want a friendlier
+handle than their phone number.
+
+Mobile isn't a DB-level unique constraint (a handful of pre-existing customer rows
+predate this decision and happen to share a number as contact info). Real uniqueness
+for login comes from Firebase itself — it will refuse to create a second account
+with the same derived email — and `POST /auth/register` additionally rejects a new
+signup if the mobile number is already on a `User` row, so the data stays clean
+going forward without needing a migration that could conflict with historical rows.
 
 On first login, a customer with no saved address (`latitude`/`longitude` null) is
 required to complete an address form before reaching the product catalog: house/flat
@@ -145,12 +156,16 @@ distance are never returned to the client. Returning customers with an address
 already on file skip this entirely.
 
 **What this gives up, deliberately:**
-- No SMS OTP verifies the mobile number (it's contact-only now, not identifying, so
-  this matters less than it did in the first version of this decision).
-- No email verification either — `username@internal.local` isn't a real,
-  ownership-verifiable address, so account recovery if a customer forgets their
-  password has no "reset link" path; recovery would currently mean the owner
-  manually resetting it via the Firebase Admin SDK.
+- No SMS OTP verifies the mobile number at signup — it's trusted as entered.
+- No email verification either — the synthetic `@internal.local` address isn't a
+  real, ownership-verifiable one, so there's no self-service "forgot password" /
+  reset-link flow. Recovery is manual: the dashboard's Customers page
+  (`dashboard/src/app/(dashboard)/customers/page.tsx`) has a "Reset password" action
+  (Staff/Owner) that sets a brand-new password via the Firebase Admin SDK
+  (`PATCH /customers/:id/reset-password`). Nobody — not staff, not us — can ever see
+  a customer's *existing* password; Firebase never stores or exposes it in readable
+  form, by design (this is true of every real auth system, not a limitation
+  specific to this app).
 - The address radius check trusts whatever coordinates the device reports — a
   customer could spoof GPS to appear within range. Low stakes for a COD-only,
   locally-delivered small business, but worth naming.
@@ -163,9 +178,10 @@ low and locally recoverable.
 
 **Revisit this when:** the customer base grows beyond people the shopkeeper
 personally knows, if online payment is ever added (Phase 2+, currently out of
-scope), or if password-reset requests become frequent enough that manual Admin SDK
-resets aren't sustainable (at that point, a real "recovery email" field — separate
-from the login identity — would be the fix).
+scope), or if manual password resets from the Customers page become frequent enough
+to be a real burden on staff time (at that point, SMS OTP for both signup
+verification and self-service reset would be the fix — the mobile number is already
+the identifier, so it's a natural next step, not a re-architecture).
 
 ---
 

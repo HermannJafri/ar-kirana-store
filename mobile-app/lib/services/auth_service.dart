@@ -4,11 +4,12 @@ import 'api_service.dart';
 
 const _internalEmailDomain = 'internal.local';
 
-/// Same pattern the dashboard uses for Staff/Owner: the customer only ever
-/// sees/enters a username, never an email — Firebase still needs an email
-/// under the hood, so we synthesize one. See PROJECT_PROMPT.md "Customer
-/// identity trade-off".
-String usernameToEmail(String username) => '${username.trim().toLowerCase()}@$_internalEmailDomain';
+/// The customer only ever sees/enters a mobile number, never an email —
+/// Firebase still needs an email under the hood, so we synthesize one from
+/// the digits of the mobile number (revised 2026-08-21, was username-based).
+/// See PROJECT_PROMPT.md "Customer identity trade-off".
+String mobileToEmail(String mobile) =>
+    '${mobile.replaceAll(RegExp(r'[^0-9]'), '')}@$_internalEmailDomain';
 
 class CustomerProfile {
   final String id;
@@ -97,27 +98,27 @@ class AuthService extends ChangeNotifier {
 
   Future<void> refreshProfile() => _onIdTokenChanged(FirebaseAuth.instance.currentUser);
 
-  Future<void> signIn(String username, String password) async {
+  Future<void> signIn(String mobile, String password) async {
     await FirebaseAuth.instance.signInWithEmailAndPassword(
-      email: usernameToEmail(username),
+      email: mobileToEmail(mobile),
       password: password,
     );
   }
 
   Future<void> signUp({
-    required String username,
+    required String mobile,
     required String password,
     required String name,
-    String? mobile,
+    String? username,
   }) async {
     final credential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
-      email: usernameToEmail(username),
+      email: mobileToEmail(mobile),
       password: password,
     );
     if (credential.user == null) {
       throw Exception('Signup failed');
     }
-    await ApiService.registerCustomer(name: name, username: username, mobile: mobile);
+    await ApiService.registerCustomer(name: name, mobile: mobile, username: username);
     await refreshProfile();
   }
 

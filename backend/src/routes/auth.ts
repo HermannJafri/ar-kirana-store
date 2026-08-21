@@ -6,11 +6,11 @@ export const authRouter = Router();
 
 // POST /auth/register - customer signup. The client creates the Firebase
 // Auth account first (createUserWithEmailAndPassword against a synthetic
-// `username@internal.local` email — see PROJECT_PROMPT.md "Customer
-// identity trade-off"), then calls this with the resulting ID token plus a
-// display name and username to create the matching CUSTOMER User row.
-// Can't use the `authenticate` middleware here — there's no User row yet
-// for it to find.
+// email derived from the customer's mobile number — see PROJECT_PROMPT.md
+// "Customer identity trade-off"), then calls this with the resulting ID
+// token plus a display name and mobile number (username optional) to create
+// the matching CUSTOMER User row. Can't use the `authenticate` middleware
+// here — there's no User row yet for it to find.
 authRouter.post("/register", async (req, res) => {
   const header = req.headers.authorization;
   if (!header?.startsWith("Bearer ")) {
@@ -39,14 +39,28 @@ authRouter.post("/register", async (req, res) => {
     res.status(400).json({ error: "name is required" });
     return;
   }
-  if (typeof username !== "string" || username.trim().length < 3) {
-    res.status(400).json({ error: "username must be at least 3 characters" });
+  if (typeof mobile !== "string" || mobile.trim().length < 10) {
+    res.status(400).json({ error: "A valid mobile number is required" });
     return;
   }
+  if (username !== undefined && username !== null && username !== "") {
+    if (typeof username !== "string" || username.trim().length < 3) {
+      res.status(400).json({ error: "username must be at least 3 characters" });
+      return;
+    }
+    const usernameTaken = await prisma.user.findUnique({ where: { username: username.trim() } });
+    if (usernameTaken) {
+      res.status(409).json({ error: "That username is already taken" });
+      return;
+    }
+  }
 
-  const usernameTaken = await prisma.user.findUnique({ where: { username: username.trim() } });
-  if (usernameTaken) {
-    res.status(409).json({ error: "That username is already taken" });
+  // No DB-level unique constraint on mobile (a handful of pre-existing rows
+  // predate this being the login identifier and share a number) — but block
+  // new registrations from creating fresh duplicates going forward.
+  const mobileTaken = await prisma.user.findFirst({ where: { mobile: mobile.trim() } });
+  if (mobileTaken) {
+    res.status(409).json({ error: "That mobile number is already registered" });
     return;
   }
 
@@ -63,8 +77,8 @@ authRouter.post("/register", async (req, res) => {
       firebaseUid: decoded.uid,
       shopId: shop.id,
       name: name.trim(),
-      username: username.trim(),
-      mobile: typeof mobile === "string" && mobile.trim() ? mobile.trim() : null,
+      username: username && typeof username === "string" && username.trim() ? username.trim() : null,
+      mobile: mobile.trim(),
       role: "CUSTOMER",
     },
   });

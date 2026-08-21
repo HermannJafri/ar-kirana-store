@@ -451,6 +451,59 @@ stock 15) — useful for future search/category testing, not test-only noise.
 **Exit criteria: met, directly verified 2026-08-21.** Ready to plan merging
 `feature/simplified-customer-flow` into `main`.
 
+### Customers page (dashboard) + customer login switched to mobile + password
+
+Requested after the above. Two related pieces:
+
+**1. Dashboard "Customers" section (Staff/Owner).** New `GET /customers` (list) and
+`PATCH /customers/:id/reset-password` (`backend/src/routes/customers.ts`). Important
+clarification given to the user up front: no auth system, Firebase included, ever
+stores or exposes a password in readable form — a literal "see the customer's
+password" feature isn't something anyone can build. What was actually wanted (and
+built) is the standard staff-assisted recovery flow: Owner/Staff open the customer's
+row and set a **brand-new** password via the Firebase Admin SDK. The eye-icon toggle
+applies to that new password as it's being typed (antd's `Input.Password`), not to
+any stored secret.
+- [x] Customers list + search (name/mobile/username) — verified via Playwright against live data.
+- [x] Reset-password modal, eye-icon show/hide on the new-password field — verified via Playwright (typed a password, confirmed masked by default, confirmed the icon reveals plaintext).
+- [x] The reset actually works, end-to-end, not just UI — **the strongest verification in this round**: clicked "Set new password" in the real dashboard UI, then independently confirmed via the Firebase Auth REST API that the customer's *old* password now fails (`INVALID_LOGIN_CREDENTIALS`) and the *new* one succeeds. Then logged into the actual Flutter app on-device with that same new password and reached the app's home screen.
+
+**2. Customer app login switched from username to mobile number.** `mobileToEmail()`
+replaces `usernameToEmail()` (`mobile-app/lib/services/auth_service.dart`) — same
+synthetic-email pattern, now keyed on the mobile number's digits instead of a
+username. `POST /auth/register` swapped which field is mandatory: `mobile` is now
+required (min 10 digits), `username` is optional; `name` was already mandatory and
+still is. No DB migration needed — both `mobile` and `username` were already
+nullable columns; only the application-layer validation in `auth.ts` changed. Mobile
+is *not* a DB-unique constraint (a few pre-existing customer rows predate this and
+happen to share a number as contact info — see below), but `POST /auth/register` now
+rejects a new signup that reuses an already-registered mobile number, and Firebase
+itself independently refuses to create two accounts with the same derived email — so
+the data stays clean going forward without a migration that could conflict with that
+historical data.
+- [x] Login screen now asks for "Mobile number" instead of "Username" — verified on-device.
+- [x] Signup screen reordered to Name → Mobile number → Username (optional) → Password, with mobile validated as mandatory (≥10 digits) and username genuinely optional — verified on-device: signed up a real account with **no** username, confirmed via a direct DB query that `username: null`, `mobile` set correctly, and the customer was auto-logged-in and routed to the address form exactly like an existing customer would be.
+- [x] Backend validation — verified via `curl`: registering with no mobile → `400`; registering with a mobile that's already on another customer's row → `409`.
+
+**Known data-migration caveat, called out rather than silently papered over:** three
+existing customer rows (`Phase3TestCustomer`, `Phase A3 Customer`, `Phase Accept
+Test`) have no mobile number on file and therefore cannot log in under the new
+mobile-based scheme until Staff/Owner adds one for them (there's no in-app "add
+mobile to an existing account" flow yet — would need to go through the Customers
+page or a direct DB update). Separately, two real customer rows (`sam malik` /
+`abis sam`) already share the mobile number `7779816137` as contact info predating
+this change — this doesn't block either of their logins (their Firebase accounts are
+username-based, created before this revision) but is worth a manual cleanup pass
+since mobile is now the primary identifier going forward.
+
+**Test fixtures added/removed this round:** one throwaway customer created via a
+direct Firebase+`curl` registration to test the reset-password flow (`Mobile Test
+User`, mobile `9876500011`) and one created via the actual on-device Sign Up screen
+(`Emulator`, mobile `9123456780`) — both cleaned up (Firebase Auth account + `User`
+row deleted) after verification.
+
+**Exit criteria: met, directly verified 2026-08-21.**
+
 ---
 
 ## Deferred / Phase 2+ (not in current scope)

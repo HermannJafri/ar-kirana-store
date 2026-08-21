@@ -76,14 +76,20 @@ model User {
 
   // Firebase Auth link for every role, including Customer — see
   // PROJECT_PROMPT.md "Customer identity trade-off" for the auth history.
-  // Customers sign in with a username, mapped to a `username@internal.local`
-  // Firebase email under the hood (never a real email) — same pattern
-  // Staff/Owner use.
+  // Staff/Owner sign in with a username; Customers sign in with their mobile
+  // number (revised 2026-08-21). Both map to a synthetic
+  // `<identifier>@internal.local` Firebase email under the hood (never a
+  // real email).
   firebaseUid String?  @unique
   name        String
   email       String?  @unique
+  // Optional for customers (Staff/Owner still use it to log in). Nullable
+  // rather than DB-unique — see PROJECT_PROMPT.md; register route enforces
+  // uniqueness in the app layer instead.
   username    String?  @unique
-  // Contact only, not an identifier — not unique, not required.
+  // The customer login identifier (mandatory at registration, enforced in
+  // the app layer rather than a DB constraint — see backend/src/routes/auth.ts).
+  // Still optional/nullable here since Staff/Owner rows don't need it.
   mobile      String?
   houseNo     String?
   floorNo     String?
