@@ -7,6 +7,11 @@ services:
     rootDir: backend
     buildCommand: npm install && npx prisma migrate deploy && npm run build
     startCommand: npm start
+    # Also used by Render itself to verify each deploy came up healthy.
+    # For the free plan's spin-down-after-idle behavior: point an external
+    # free uptime monitor (e.g. UptimeRobot, ~5 min interval) at this same
+    # URL once deployed, rather than an internal self-ping — see the comment
+    # on the route itself (backend/src/index.ts) for why.
     healthCheckPath: /health
     envVars:
       - key: NODE_ENV

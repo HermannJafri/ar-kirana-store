@@ -26,6 +26,13 @@ app.use("/categories", categoriesRouter);
 app.use("/analytics", analyticsRouter);
 app.use("/customers", customersRouter);
 
+// Keep-alive strategy for Render's free tier (spins down after ~15 min
+// idle): point an external uptime monitor (e.g. UptimeRobot, free tier,
+// ~5 min interval) at this URL rather than building a self-ping/setInterval
+// inside the process — a ping from inside the same process that's spinning
+// down doesn't prevent the spin-down, and only an external request actually
+// counts as traffic. Deliberately GET, unauthenticated, and a single trivial
+// query, so it's cheap enough to hit every few minutes indefinitely.
 app.get("/health", async (_req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
