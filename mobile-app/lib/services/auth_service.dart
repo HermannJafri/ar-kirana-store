@@ -118,7 +118,20 @@ class AuthService extends ChangeNotifier {
     if (credential.user == null) {
       throw Exception('Signup failed');
     }
-    await ApiService.registerCustomer(name: name, mobile: mobile, username: username);
+    try {
+      await ApiService.registerCustomer(name: name, mobile: mobile, username: username);
+    } catch (e) {
+      // Backend registration failed (e.g. mobile already registered) — the
+      // Firebase account from above must not be left behind as an orphan,
+      // or it'll block every future signup attempt with this mobile number
+      // ("email already in use") with no corresponding customer record to
+      // show for it. Best-effort: if this delete itself fails, the original
+      // registration error is still what the caller needs to see.
+      try {
+        await credential.user!.delete();
+      } catch (_) {}
+      rethrow;
+    }
     await refreshProfile();
   }
 

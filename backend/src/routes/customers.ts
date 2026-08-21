@@ -3,6 +3,13 @@ import { prisma } from "../lib/prisma";
 import { firebaseAuth } from "../lib/firebaseAdmin";
 import { authenticate, requireRole } from "../middleware/auth";
 
+// Mirrors mobile-app/lib/services/auth_service.dart's mobileToEmail() — must
+// stay byte-for-byte identical or a reset here won't line up with what the
+// app actually signs in against.
+function mobileToEmail(mobile: string): string {
+  return `${mobile.replace(/[^0-9]/g, "")}@internal.local`;
+}
+
 export const customersRouter = Router();
 
 customersRouter.use(authenticate);
@@ -36,6 +43,15 @@ customersRouter.get("/", async (req, res) => {
 // forgets their password, Staff/Owner set a brand-new one for them here via
 // the Firebase Admin SDK. Nobody — including staff — can ever see a
 // customer's *existing* password; Firebase never stores or exposes it.
+//
+// Also re-syncs the Firebase account's email to the mobile-derived one
+// customers actually log in with. Accounts created before the
+// username -> mobile login switch (2026-08-21) still have a
+// `username@internal.local` Firebase email; resetting only the password on
+// those left the customer unable to log in at all (the app looks up
+// `mobile@internal.local`, a different account entirely — a real bug found
+// and fixed the same day the Customers page shipped). This makes a reset
+// double as the one-time migration to mobile-based login for that customer.
 customersRouter.patch("/:id/reset-password", async (req, res) => {
   const customer = await prisma.user.findUnique({ where: { id: req.params.id } });
   if (!customer || customer.shopId !== req.user!.shopId || customer.role !== "CUSTOMER") {
@@ -46,6 +62,12 @@ customersRouter.patch("/:id/reset-password", async (req, res) => {
     res.status(409).json({ error: "This customer has no linked login account" });
     return;
   }
+  if (!customer.mobile) {
+    res.status(400).json({
+      error: "This customer has no mobile number on file — add one before resetting their password, since mobile number is what customers log in with.",
+    });
+    return;
+  }
 
   const { password } = req.body ?? {};
   if (typeof password !== "string" || password.length < 6) {
@@ -53,7 +75,21 @@ customersRouter.patch("/:id/reset-password", async (req, res) => {
     return;
   }
 
-  await firebaseAuth.updateUser(customer.firebaseUid, { password });
+  try {
+    await firebaseAuth.updateUser(customer.firebaseUid, {
+      email: mobileToEmail(customer.mobile),
+      password,
+    });
+  } catch (e) {
+    if ((e as { code?: string }).code === "auth/email-already-exists") {
+      res.status(409).json({
+        error:
+          "Another login account already uses this mobile number (likely a duplicate customer row or an orphaned signup attempt). Resolve that first, then reset again.",
+      });
+      return;
+    }
+    throw e;
+  }
   res.json({ success: true });
 });
 

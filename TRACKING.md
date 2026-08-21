@@ -525,6 +525,59 @@ order attached) to prove the `curl`-level block/allow behavior, plus one more
 dashboard. All cleaned up after verification (the with-orders one required deleting
 its `OrderItem`/`Order` rows first, same as the customer-side cascade would need).
 
+### Two real bugs found via live user testing, fixed same day
+
+The user tested the mobile-login migration on their own real phone/number and hit two
+genuine, reproducible bugs — not test-fixture artifacts. Both are fixed and verified.
+
+**Bug 1 — resetting a legacy customer's password didn't actually restore their
+login.** Any customer created before the username→mobile login switch has a Firebase
+account under `username@internal.local` (or, for a couple of very early rows, no
+recognizable pattern at all). The dashboard's "Reset password" was only updating the
+password on that old account — but the login screen now looks up
+`mobile@internal.local`, a *different* Firebase account entirely, so the customer
+stayed locked out even immediately after a "successful" reset.
+- **Fix:** `PATCH /customers/:id/reset-password` now also updates the Firebase
+  account's *email* to the mobile-derived one (`backend/src/routes/customers.ts`),
+  so a reset doubles as a one-time migration to mobile-based login for that
+  customer. Blocks with a clear `400` if the customer has no mobile on file (nothing
+  to migrate to), and a clear `409` if another account already owns that derived
+  email (a duplicate-mobile conflict — see Bug 2's fixture note below).
+- [x] Verified against the real affected account (`abis sam`, mobile `7779816137`,
+  originally `abis@internal.local`): reset via the endpoint, then confirmed via the
+  Firebase Auth REST API that (a) login with `7779816137` + the new password now
+  **succeeds**, and (b) the old `abis@internal.local` login path is gone — no
+  leftover duplicate account.
+
+**Bug 2 — a failed signup left an orphaned Firebase account that permanently blocked
+retrying.** `AuthService.signUp()` created the Firebase Auth account *before* calling
+the backend's `POST /auth/register`. If registration failed for any reason (most
+commonly: the mobile number was already on file, e.g. from Bug 1's duplicate-mobile
+history), the Firebase account was never cleaned up — so every subsequent signup
+attempt with that same mobile number failed immediately with
+`email-already-in-use`, even though no real customer record existed for it. This is
+exactly what the user hit: signing up with `7779816137` after Bug 1 had already
+occurred.
+- **Fix:** `signUp()` (`mobile-app/lib/services/auth_service.dart`) now wraps the
+  backend registration call — if it throws, the just-created Firebase user is
+  deleted before rethrowing, so a failed signup leaves nothing behind.
+- [x] Verified on-device, live: cleared app data, signed up with a mobile number
+  already registered to another real customer (`9112233445`), got the expected
+  "already registered" error, then independently confirmed via the Firebase Admin
+  SDK that **no orphaned account exists** for that email (`auth/user-not-found`) —
+  the rollback fired correctly.
+
+**Real-data cleanup performed as part of this fix (not a test fixture — explaining
+for the record):** the orphaned `7779816137@internal.local` Firebase account created
+by the user's own repeated signup attempts (before the fix existed) was deleted, and
+their `abis sam` account was migrated via the fixed reset-password endpoint so
+`7779816137` + a new password now works. Also noted: the user's own `sam malik`
+account (which shared the same mobile as `abis sam`, both apparently the same
+person's earlier test accounts) had already been removed via the new Delete
+Customer feature before this bug was reported — deleting it also correctly removed
+its Firebase account, per Delete Customer's existing behavior, which is part of why
+the duplicate-mobile conflict resolved cleanly once the orphan was cleared.
+
 **Exit criteria: met, directly verified 2026-08-21.**
 
 ---
