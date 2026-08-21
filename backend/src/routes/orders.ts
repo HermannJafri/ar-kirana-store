@@ -88,16 +88,26 @@ ordersRouter.post("/", requireRole("CUSTOMER"), async (req, res) => {
 });
 
 // GET /orders - Customer sees their own orders; Staff/Owner see every order
-// for the shop (optionally filtered by ?status=). Newest first either way.
+// for the shop (optionally filtered by ?status= and/or ?paymentStatus=).
+// Newest first either way.
 ordersRouter.get("/", async (req, res) => {
-  const { status } = req.query;
+  const { status, paymentStatus } = req.query;
   const statusFilter =
     typeof status === "string" && status in OrderStatus ? (status as OrderStatus) : undefined;
+  const paymentStatusFilter =
+    typeof paymentStatus === "string" && paymentStatus in PaymentStatus
+      ? (paymentStatus as PaymentStatus)
+      : undefined;
+
+  const filters = {
+    ...(statusFilter ? { status: statusFilter } : {}),
+    ...(paymentStatusFilter ? { paymentStatus: paymentStatusFilter } : {}),
+  };
 
   const where =
     req.user!.role === "CUSTOMER"
-      ? { customerId: req.user!.id, ...(statusFilter ? { status: statusFilter } : {}) }
-      : { shopId: req.user!.shopId, ...(statusFilter ? { status: statusFilter } : {}) };
+      ? { customerId: req.user!.id, ...filters }
+      : { shopId: req.user!.shopId, ...filters };
 
   const orders = await prisma.order.findMany({
     where,

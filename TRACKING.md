@@ -431,6 +431,18 @@ on the `Medium_Phone_API_36.1` emulator).
      the list to just "Test Atta 5kg", and a no-match query showed the correct empty
      state.
 
+6. **Dashboard Orders payment-status filter.** Added shortly after the above, on
+   request. `GET /orders` now also accepts `?paymentStatus=`, combinable with the
+   existing `?status=` filter (both are plain `where` clauses, ANDed together as
+   before). Dashboard gained a second `Select` ("Filter by payment") next to the
+   existing status filter; both filters and the search box compose together.
+   - [x] Verified against the live DB with realistic mixed data (9 orders spanning
+     PENDING/PARTIAL/COLLECTED payment states): filtering to `PARTIAL` alone
+     correctly returned 2 orders, `COLLECTED` alone returned 2, and combining
+     `status=DELIVERED` + `paymentStatus=COLLECTED` correctly narrowed to exactly
+     the 2 orders matching both — confirming the two filters actually AND together
+     rather than one silently overriding the other.
+
 **Test fixtures added/removed this round:** several throwaway test orders created and
 deleted directly via Prisma to exercise each status/payment transition (all cleaned up
 afterward); one real product fixture added and *kept* — "Test Rice 1kg" (₹90/pack,

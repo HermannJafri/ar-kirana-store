@@ -85,6 +85,7 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState<string | undefined>(undefined);
   const [search, setSearch] = useState("");
   const [detail, setDetail] = useState<Order | null>(null);
   const [updating, setUpdating] = useState(false);
@@ -95,8 +96,11 @@ export default function OrdersPage() {
     const requestId = ++requestIdRef.current;
     if (!silent) setLoading(true);
     try {
-      const path = statusFilter ? `/orders?status=${statusFilter}` : "/orders";
-      const data = await authFetch(path);
+      const params = new URLSearchParams();
+      if (statusFilter) params.set("status", statusFilter);
+      if (paymentStatusFilter) params.set("paymentStatus", paymentStatusFilter);
+      const query = params.toString();
+      const data = await authFetch(query ? `/orders?${query}` : "/orders");
       if (requestId !== requestIdRef.current) return;
       setOrders(data);
     } catch (e) {
@@ -112,7 +116,7 @@ export default function OrdersPage() {
     const interval = setInterval(() => load(true), POLL_MS);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter]);
+  }, [statusFilter, paymentStatusFilter]);
 
   const filteredOrders = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -219,6 +223,14 @@ export default function OrdersPage() {
             value={statusFilter}
             onChange={setStatusFilter}
             options={Object.keys(STATUS_COLORS).map((s) => ({ value: s, label: s.replace(/_/g, " ") }))}
+          />
+          <Select
+            allowClear
+            placeholder="Filter by payment"
+            style={{ width: 180 }}
+            value={paymentStatusFilter}
+            onChange={setPaymentStatusFilter}
+            options={Object.keys(PAYMENT_COLORS).map((s) => ({ value: s, label: s }))}
           />
         </Space>
       </Space>
