@@ -16,21 +16,21 @@ enum UserRole {
   CUSTOMER
   STAFF
   OWNER
-  DELIVERY
 }
 
 enum OrderStatus {
   PENDING
   CONFIRMED
-  PICKING
-  PACKED
   OUT_FOR_DELIVERY
   DELIVERED
   CANCELLED
 }
 
+// Auto-computed from Order.amountPaid vs totalAmount, never set directly —
+// see backend/src/routes/orders.ts's computePaymentStatus.
 enum PaymentStatus {
   PENDING
+  PARTIAL
   COLLECTED
 }
 
@@ -99,7 +99,6 @@ model User {
   createdAt DateTime @default(now())
 
   ordersAsCustomer Order[] @relation("CustomerOrders")
-  ordersAsDelivery Order[] @relation("DeliveryOrders")
 
   @@index([shopId])
   @@index([shopId, role])
@@ -142,19 +141,19 @@ model Order {
   customerId String
   customer   User   @relation("CustomerOrders", fields: [customerId], references: [id])
 
-  deliveryBoyId String?
-  deliveryBoy   User?   @relation("DeliveryOrders", fields: [deliveryBoyId], references: [id])
-
   status        OrderStatus   @default(PENDING)
   paymentStatus PaymentStatus @default(PENDING)
   totalAmount   Decimal       @db.Decimal(10, 2)
+  // Running total of cash physically brought back to the shop — recorded by
+  // Owner/Staff from the dashboard, possibly across several partial
+  // payments. paymentStatus is derived from this, never set directly.
+  amountPaid    Decimal       @default(0) @db.Decimal(10, 2)
 
   deliveryAddress String?
   notes           String?
 
   createdAt        DateTime  @default(now())
   confirmedAt       DateTime?
-  packedAt          DateTime?
   outForDeliveryAt  DateTime?
   deliveredAt       DateTime?
   cancelledAt        DateTime?
@@ -163,7 +162,6 @@ model Order {
 
   @@index([shopId, status])
   @@index([customerId])
-  @@index([deliveryBoyId])
 }
 
 model OrderItem {

@@ -8,7 +8,7 @@ import { API_BASE } from "@/lib/api";
 export interface Profile {
   id: string;
   shopId: string;
-  role: "CUSTOMER" | "STAFF" | "OWNER" | "DELIVERY";
+  role: "CUSTOMER" | "STAFF" | "OWNER";
   name: string;
   email: string | null;
   isActive: boolean;

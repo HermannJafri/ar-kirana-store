@@ -1,7 +1,19 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Table, Tag, Button, Modal, Select, Space, Typography, message, Descriptions } from "antd";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Table,
+  Tag,
+  Button,
+  Modal,
+  Select,
+  Space,
+  Typography,
+  message,
+  Descriptions,
+  Input,
+  InputNumber,
+} from "antd";
 import { authFetch } from "@/lib/api";
 
 const POLL_MS = 20000;
@@ -9,29 +21,31 @@ const POLL_MS = 20000;
 const STATUS_COLORS: Record<string, string> = {
   PENDING: "gold",
   CONFIRMED: "blue",
-  PICKING: "geekblue",
-  PACKED: "purple",
   OUT_FOR_DELIVERY: "cyan",
   DELIVERED: "green",
   CANCELLED: "red",
 };
 
-// Mirrors backend/src/routes/orders.ts's NEXT_STATUS map — what the dashboard
-// is allowed to move an order to next. DELIVERED isn't here: that's the
-// Delivery role's "payment collected" action (Phase 5), not a plain status
-// button.
+const PAYMENT_COLORS: Record<string, string> = {
+  PENDING: "default",
+  PARTIAL: "orange",
+  COLLECTED: "green",
+};
+
+// Mirrors backend/src/routes/orders.ts's NEXT_STATUS map — what the
+// dashboard is allowed to move an order to next. There's no separate
+// delivery role/login in this app, so DELIVERED is a plain Staff/Owner
+// action here too, same as every other transition.
 const NEXT_STATUS: Record<string, string[]> = {
   PENDING: ["CONFIRMED", "CANCELLED"],
-  CONFIRMED: ["PICKING", "CANCELLED"],
-  PICKING: ["PACKED", "CANCELLED"],
-  PACKED: ["OUT_FOR_DELIVERY", "CANCELLED"],
+  CONFIRMED: ["OUT_FOR_DELIVERY", "CANCELLED"],
+  OUT_FOR_DELIVERY: ["DELIVERED"],
 };
 
 const STATUS_LABELS: Record<string, string> = {
   CONFIRMED: "Confirm",
-  PICKING: "Start picking",
-  PACKED: "Mark packed",
   OUT_FOR_DELIVERY: "Out for delivery",
+  DELIVERED: "Mark delivered",
   CANCELLED: "Cancel order",
 };
 
@@ -55,6 +69,8 @@ interface Order {
   id: string;
   status: string;
   totalAmount: string;
+  amountPaid: string;
+  paymentStatus: string;
   createdAt: string;
   customer: Customer;
   items: OrderItem[];
@@ -69,8 +85,10 @@ export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
+  const [search, setSearch] = useState("");
   const [detail, setDetail] = useState<Order | null>(null);
   const [updating, setUpdating] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState<number | null>(null);
   const requestIdRef = useRef(0);
 
   const load = async (silent = false) => {
@@ -96,6 +114,17 @@ export default function OrdersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter]);
 
+  const filteredOrders = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return orders;
+    return orders.filter(
+      (o) =>
+        o.customer.name.toLowerCase().includes(q) ||
+        (o.customer.mobile ?? "").toLowerCase().includes(q) ||
+        o.id.toLowerCase().includes(q)
+    );
+  }, [orders, search]);
+
   const updateStatus = async (orderId: string, status: string) => {
     setUpdating(true);
     try {
@@ -105,6 +134,25 @@ export default function OrdersPage() {
       });
       message.success(`Order moved to ${status}`);
       setDetail(updated);
+      load(true);
+    } catch (e) {
+      message.error((e as Error).message);
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const recordPayment = async () => {
+    if (!detail || !paymentAmount || paymentAmount <= 0) return;
+    setUpdating(true);
+    try {
+      const updated = await authFetch(`/orders/${detail.id}/payment`, {
+        method: "PATCH",
+        body: JSON.stringify({ amount: paymentAmount }),
+      });
+      message.success(`Recorded ₹${paymentAmount.toFixed(2)} received`);
+      setDetail(updated);
+      setPaymentAmount(null);
       load(true);
     } catch (e) {
       message.error((e as Error).message);
@@ -128,6 +176,12 @@ export default function OrdersPage() {
       render: (t: string) => `₹${Number(t).toFixed(2)}`,
     },
     {
+      title: "Payment",
+      render: (_: unknown, o: Order) => (
+        <Tag color={PAYMENT_COLORS[o.paymentStatus]}>{o.paymentStatus}</Tag>
+      ),
+    },
+    {
       title: "Placed at",
       dataIndex: "createdAt",
       render: (d: string) => new Date(d).toLocaleString(),
@@ -142,33 +196,47 @@ export default function OrdersPage() {
     },
   ];
 
+  const remaining = detail ? Number(detail.totalAmount) - Number(detail.amountPaid) : 0;
+
   return (
     <div>
       <Space style={{ marginBottom: 16, justifyContent: "space-between", width: "100%" }}>
         <Typography.Title level={4} style={{ margin: 0 }}>
           Orders
         </Typography.Title>
-        <Select
-          allowClear
-          placeholder="Filter by status"
-          style={{ width: 200 }}
-          value={statusFilter}
-          onChange={setStatusFilter}
-          options={Object.keys(STATUS_COLORS).map((s) => ({ value: s, label: s.replace(/_/g, " ") }))}
-        />
+        <Space>
+          <Input.Search
+            allowClear
+            placeholder="Search by customer, phone, or order ID"
+            style={{ width: 280 }}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <Select
+            allowClear
+            placeholder="Filter by status"
+            style={{ width: 200 }}
+            value={statusFilter}
+            onChange={setStatusFilter}
+            options={Object.keys(STATUS_COLORS).map((s) => ({ value: s, label: s.replace(/_/g, " ") }))}
+          />
+        </Space>
       </Space>
       <Table
         rowKey="id"
         loading={loading}
         columns={columns}
-        dataSource={orders}
+        dataSource={filteredOrders}
         locale={{ emptyText: "No orders yet." }}
       />
 
       <Modal
         title={detail ? `Order #${detail.id.slice(0, 8)}` : ""}
         open={!!detail}
-        onCancel={() => setDetail(null)}
+        onCancel={() => {
+          setDetail(null);
+          setPaymentAmount(null);
+        }}
         footer={
           detail && (
             <Space>
@@ -210,6 +278,33 @@ export default function OrdersPage() {
               ))}
             </ul>
             <Typography.Text strong>Total: ₹{Number(detail.totalAmount).toFixed(2)}</Typography.Text>
+
+            <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid #f0f0f0" }}>
+              <Typography.Text strong>Payment</Typography.Text>
+              <div style={{ marginTop: 8 }}>
+                <Tag color={PAYMENT_COLORS[detail.paymentStatus]}>{detail.paymentStatus}</Tag>
+                <Typography.Text style={{ marginLeft: 8 }}>
+                  Received: ₹{Number(detail.amountPaid).toFixed(2)} &nbsp;·&nbsp; Remaining: ₹
+                  {remaining.toFixed(2)}
+                </Typography.Text>
+              </div>
+              {remaining > 0 && (
+                <Space style={{ marginTop: 12 }}>
+                  <InputNumber
+                    min={0.01}
+                    max={remaining}
+                    step={1}
+                    precision={2}
+                    placeholder="Amount received"
+                    value={paymentAmount}
+                    onChange={setPaymentAmount}
+                  />
+                  <Button loading={updating} disabled={!paymentAmount} onClick={recordPayment}>
+                    Record payment
+                  </Button>
+                </Space>
+              )}
+            </div>
           </>
         )}
       </Modal>

@@ -6,8 +6,6 @@ import 'order_detail_screen.dart';
 const Map<String, Color> _statusColors = {
   'PENDING': Colors.amber,
   'CONFIRMED': Colors.blue,
-  'PICKING': Colors.indigo,
-  'PACKED': Colors.purple,
   'OUT_FOR_DELIVERY': Colors.cyan,
   'DELIVERED': Colors.green,
   'CANCELLED': Colors.red,

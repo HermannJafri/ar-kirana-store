@@ -289,8 +289,10 @@ Dashboard: new "Orders" tab (`orders/page.tsx`) — table of all orders (status,
 address, items, total, placed-at), filterable by status, detail modal with status-update
 action buttons (Confirm/Start picking/Mark packed/Out for delivery/Cancel — `DELIVERED`
 intentionally excluded, reserved for the Phase 5 Delivery role's "payment collected"
-action). Sidebar (`layout.tsx`) converted to `Layout.Sider` with a live PENDING-count
-badge, polling `GET /orders?status=PENDING` every 20s.
+action *(superseded — see "Refinements" below: the Delivery role was removed entirely and
+DELIVERED is now a plain Owner/Staff action, same as every other status)*). Sidebar
+(`layout.tsx`) converted to `Layout.Sider` with a live PENDING-count badge, polling
+`GET /orders?status=PENDING` every 20s.
 
 - [x] Orders list + detail + status transitions — **fully verified against the live DB**, including a real diagnostic detour: an early test appeared to show the table not refreshing after a status update, but a follow-up run with a network log and a freshly-created fixture order confirmed the table *does* refresh correctly (`load(true)` firing and applying) — the earlier miss was insufficient wait time in that specific test script, not a code defect. No fix was needed.
 - [x] Sidebar PENDING badge, ~20s polling, no manual refresh needed — verified: badge count matched the live PENDING order count and updated after confirming an order.
@@ -356,8 +358,86 @@ quantity). Real orders placed through `POST /orders` always compute `totalAmount
 correctly server-side; this only affects hand-inserted test rows.
 
 **Exit criteria: met, directly verified 2026-08-21.** This was the last item from the
-original Phase B–F batch — ready to plan merging `feature/simplified-customer-flow`
-into `main`.
+original Phase B–F batch.
+
+### Refinements — simplified status flow, no delivery role, partial payments, search
+
+Requested as a set of cleanups before considering the branch merge-ready. All five
+verified against the live DB and on real UI (dashboard via Playwright, mobile app
+on the `Medium_Phone_API_36.1` emulator).
+
+1. **Simplified order status flow.** `OrderStatus` enum shrunk from
+   PENDING/CONFIRMED/PICKING/PACKED/OUT_FOR_DELIVERY/DELIVERED/CANCELLED to just
+   PENDING/CONFIRMED/OUT_FOR_DELIVERY/DELIVERED/CANCELLED. Migration
+   `20260821020000_simplify_status_remove_delivery_role` first folds any existing
+   PICKING/PACKED rows into CONFIRMED (one live fixture order was in PACKED — verified
+   it migrated to CONFIRMED correctly), then recreates the Postgres enum type
+   (dropping an enum value isn't directly supported). `Order.packedAt` dropped along
+   with it.
+   - [x] Verified via direct API calls: `PENDING → PICKING` now rejected (`400 Invalid
+     status`, since PICKING no longer exists); the full `PENDING → CONFIRMED →
+     OUT_FOR_DELIVERY → DELIVERED` chain works; `CANCELLED` correctly rejected once an
+     order reaches `DELIVERED` (`409`).
+   - [x] Dashboard Orders page updated to match — verified via Playwright: detail modal
+     shows only the buttons valid for the current status (no more "Start picking"/"Mark
+     packed"), `DELIVERED` reachable as a plain action once `OUT_FOR_DELIVERY`.
+
+2. **Removed the DELIVERY role entirely.** No rows used it in the live DB (verified
+   before writing the migration), so this was a clean removal: `UserRole` enum
+   shrunk to CUSTOMER/STAFF/OWNER, `Order.deliveryBoyId` (and its FK/index) dropped,
+   `User.ordersAsDelivery` relation removed. No delivery-specific routes or screens
+   existed yet to clean up. `PROJECT_PROMPT.md` updated with a new "No separate
+   delivery role" decision section (mirroring the "Customer identity trade-off"
+   section's style) explaining the reasoning and when to revisit it.
+   - [x] Verified: backend `tsc --noEmit` clean, dashboard `tsc --noEmit` clean,
+     `flutter analyze` clean — no dangling `DELIVERY` role references anywhere in
+     active code (confirmed via a repo-wide grep, remaining hits are all
+     `OUT_FOR_DELIVERY` status text or historical migration/TRACKING.md notes).
+
+3. **Partial payment tracking.** `Order.amountPaid` (Decimal, default 0) added;
+   `PaymentStatus` gained `PARTIAL` (PENDING → PARTIAL → COLLECTED, all
+   auto-computed from `amountPaid` vs `totalAmount`, never set directly). New
+   `PATCH /orders/:id/payment` (Staff/Owner only) accepts `{ amount }` and *adds* it
+   to the running `amountPaid` total, so a cash payment can be recorded in more than
+   one visit. Dashboard order detail gained a "Payment" section: current
+   `paymentStatus` tag, "Received: ₹X · Remaining: ₹Y", and an amount input + "Record
+   payment" button (hidden once fully paid). Customer app's order detail screen shows
+   the same received/remaining breakdown when `paymentStatus` is `PARTIAL`.
+   - [x] Backend verified directly: PENDING (₹0) → recorded ₹100 of ₹300 → `PARTIAL` →
+     recorded the remaining ₹200 → `COLLECTED`, all computed correctly.
+   - [x] Dashboard verified via Playwright, including recording payment across *two
+     separate calls* on the same order (₹200 + ₹200 on a ₹500 order → correctly
+     showed `PARTIAL`, Received ₹400.00, Remaining ₹100.00) — confirms the
+     "incremental if paid in parts" requirement actually works, not just in theory.
+   - **Process note:** the first attempt to drive this in Playwright looked like a
+     bug (payment not reflected after a 1.2s wait), but a longer wait plus a network
+     log showed the `PATCH .../payment` request simply took longer than that to
+     resolve (Firebase `getIdToken()` round trip) — not a defect. Worth remembering
+     for future dashboard Playwright scripts: 1-1.5s is sometimes too short for a
+     real network+auth round trip, not just for React state settling.
+
+4. **Dashboard Orders search.** Client-side filter (same pattern as the Products
+   page's search) matching customer name, mobile number, or order ID substring,
+   case-insensitive.
+   - [x] Verified via Playwright: searching by customer name and by an order-ID
+     prefix both correctly narrowed the table to the matching row(s).
+
+5. **Customer app catalog search.** Search bar above the category chips on the
+   product browse screen, filtering by product name (combines with the active
+   category filter — Phase C — and shows a `No products match "<query>".` empty
+   state).
+   - [x] Verified on-device: added a second real product ("Test Rice 1kg") so the
+     filter had something to actually exclude; searching "atta" correctly narrowed
+     the list to just "Test Atta 5kg", and a no-match query showed the correct empty
+     state.
+
+**Test fixtures added/removed this round:** several throwaway test orders created and
+deleted directly via Prisma to exercise each status/payment transition (all cleaned up
+afterward); one real product fixture added and *kept* — "Test Rice 1kg" (₹90/pack,
+stock 15) — useful for future search/category testing, not test-only noise.
+
+**Exit criteria: met, directly verified 2026-08-21.** Ready to plan merging
+`feature/simplified-customer-flow` into `main`.
 
 ---
 

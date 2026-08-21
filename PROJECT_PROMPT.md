@@ -77,17 +77,21 @@ Use the Prisma schema already drafted (`schema.prisma`) as the source of truth:
   now. Also carries `latitude`/`longitude`/`deliveryRadiusKm` (owner-configurable from
   the dashboard) used to validate customer addresses — see "Customer identity
   trade-off" below.
-- `User` — `role` enum: CUSTOMER, STAFF, OWNER, DELIVERY. Every role authenticates via
-  Firebase (`firebaseUid`); Customers use a `username` mapped to a synthetic
-  `username@internal.local` email rather than a real one — see "Customer identity
-  trade-off" below. `mobile` is contact-only (not unique, not an identifier).
-  Customers also carry `houseNo`/`floorNo`/`area`/`latitude`/`longitude` for their
-  delivery address.
+- `User` — `role` enum: CUSTOMER, STAFF, OWNER. There is no separate DELIVERY role or
+  login (**revised feature/simplified-customer-flow, 2026-08-21** — see "No separate
+  delivery role" below); every role authenticates via Firebase (`firebaseUid`);
+  Customers use a `username` mapped to a synthetic `username@internal.local` email
+  rather than a real one — see "Customer identity trade-off" below. `mobile` is
+  contact-only (not unique, not an identifier). Customers also carry
+  `houseNo`/`floorNo`/`area`/`latitude`/`longitude` for their delivery address.
 - `Product` — belongs to a shop, has price, quantityAvailable, isAvailable, nullable `barcode`
   field reserved for Phase 2
-- `Order` — status flow: PENDING → CONFIRMED → PICKING → PACKED → OUT_FOR_DELIVERY → DELIVERED
-  (or CANCELLED at any point before OUT_FOR_DELIVERY). Has `paymentStatus` tracked separately
-  (PENDING → COLLECTED) since delivery and cash collection can be two separate moments.
+- `Order` — status flow: PENDING → CONFIRMED → OUT_FOR_DELIVERY → DELIVERED (or CANCELLED
+  at any point before OUT_FOR_DELIVERY) — simplified from an earlier PICKING/PACKED
+  version, see "No separate delivery role" below. `paymentStatus` (PENDING/PARTIAL/
+  COLLECTED) is *derived* from `amountPaid` vs `totalAmount`, never set directly —
+  Owner/Staff record cash received via `PATCH /orders/:id/payment`, which can be
+  called more than once for a part-paid order.
 - `OrderItem` — snapshots `priceAtOrder` so historical orders aren't affected by later price changes
 
 Every table that will eventually need to differ per shop/hub already carries `shopId`.
@@ -103,14 +107,13 @@ included, see "Customer identity trade-off" below — authenticates the same way
   row (`shopId`, `role`) via Prisma. Every route requires this.
 - `requireRole(...)` middleware restricts a route to specific roles, chained after
   `authenticate`.
-- Route handlers scope every query by `req.user.shopId` (and by `customerId` /
-  `deliveryBoyId` where relevant) — the same rules that were originally drafted as RLS
-  policies now live here instead:
+- Route handlers scope every query by `req.user.shopId` (and by `customerId` where
+  relevant) — the same rules that were originally drafted as RLS policies now live
+  here instead:
   - Customers can only read/create their own rows in `Order` (matched via `customerId`)
   - Staff/Owner can read/update all rows where `shopId` matches their own `shopId`
-  - Delivery role can only read/update orders where `deliveryBoyId` = their own user id
-  - Only Owner role can create/update `User` rows with role STAFF or DELIVERY (no public
-    self-signup for these roles)
+  - Only Owner role can create/update `User` rows with role STAFF (no public
+    self-signup for that role)
 
 Supabase RLS (`backend/sql/rls_policies.sql`) is enabled as a deny-by-default backstop,
 not the primary mechanism — see that file's header comment for details.
@@ -166,6 +169,32 @@ from the login identity — would be the fix).
 
 ---
 
+## No separate delivery role
+
+**Decision (feature/simplified-customer-flow, 2026-08-21):** the `DELIVERY` role, the
+`Order.deliveryBoyId` column, and the PICKING/PACKED intermediate statuses were all
+removed. Whoever physically delivers an order (owner, staff, or an informal helper) is
+not tracked as a distinct app identity — there's no delivery login and nothing in the
+UI assigns an order to a specific delivery person.
+
+The simplified status flow is PENDING → CONFIRMED → OUT_FOR_DELIVERY → DELIVERED (or
+CANCELLED any time before OUT_FOR_DELIVERY), and all of it — including marking an
+order DELIVERED and recording the cash that comes back — is a plain Owner/Staff
+dashboard action, done once the order and the money are physically back at the shop.
+This is the same "everything through the backend, no new per-role surface without a
+reason" instinct as the rest of the app: a fourth role/login pair for what is, for a
+30-40-customer single-shop operation, informal in-person delivery, wasn't earning its
+complexity.
+
+**Revisit this when:** delivery is handed off to someone who isn't already trusted
+with the dashboard (a hired delivery-only staffer who shouldn't see the product
+catalog or settings), or when the shop needs to know *who* delivered a given order for
+accountability — at that point, a scoped-down role (order status + payment recording
+only, no product/settings access) is the natural next step, not a full re-add of the
+old DELIVERY role.
+
+---
+
 ## Phase Breakdown
 
 See `TRACKING.md` for the actual checklist. Build in this order:
@@ -173,9 +202,9 @@ See `TRACKING.md` for the actual checklist. Build in this order:
 1. **Foundation** — Supabase project, Prisma schema migration, RLS policies, Firebase Auth setup, Cloudinary setup
 2. **Dashboard core** — Next.js auth (owner/staff login), product CRUD, inventory quantity/price updates
 3. **Customer app core** — Flutter auth, product browse/list (read-only from Supabase), cart, place order (via Express backend endpoint)
-4. **Order lifecycle** — dashboard order status updates (PENDING→...→OUT_FOR_DELIVERY), customer order tracking screen
-5. **Delivery flow** — delivery role login, assigned orders list, item-match view, COD collected confirmation
-6. **Staff management** — owner-only screens to add/remove staff and delivery boy accounts
+4. **Order lifecycle** — dashboard order status updates (PENDING→CONFIRMED→OUT_FOR_DELIVERY→DELIVERED), payment recording, customer order tracking screen
+5. ~~Delivery flow~~ — removed, see "No separate delivery role" above
+6. **Staff management** — owner-only screens to add/remove staff accounts
 7. **Polish & test** — empty states, error handling, real device testing with the shopkeeper's actual product catalog
 
 Do not start Phase 2 work until Phase 1 is fully verified working end-to-end (a product

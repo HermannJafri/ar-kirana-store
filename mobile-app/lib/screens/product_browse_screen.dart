@@ -22,6 +22,7 @@ class _ProductBrowseScreenState extends State<ProductBrowseScreen> {
   List<Product> _products = [];
   List<Category> _categories = [];
   String _activeCategoryId = _allCategoryId;
+  String _search = "";
   bool _loading = true;
   String? _error;
 
@@ -62,11 +63,17 @@ class _ProductBrowseScreenState extends State<ProductBrowseScreen> {
   }
 
   List<Product> get _filteredProducts {
-    if (_activeCategoryId == _allCategoryId) return _products;
+    var result = _products;
     if (_activeCategoryId == _uncategorizedId) {
-      return _products.where((p) => p.category == null).toList();
+      result = result.where((p) => p.category == null).toList();
+    } else if (_activeCategoryId != _allCategoryId) {
+      result = result.where((p) => p.category?.id == _activeCategoryId).toList();
     }
-    return _products.where((p) => p.category?.id == _activeCategoryId).toList();
+    final query = _search.trim().toLowerCase();
+    if (query.isNotEmpty) {
+      result = result.where((p) => p.name.toLowerCase().contains(query)).toList();
+    }
+    return result;
   }
 
   @override
@@ -149,6 +156,18 @@ class _ProductBrowseScreenState extends State<ProductBrowseScreen> {
 
     return Column(
       children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+          child: TextField(
+            decoration: InputDecoration(
+              hintText: "Search products",
+              prefixIcon: const Icon(Icons.search),
+              isDense: true,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onChanged: (value) => setState(() => _search = value),
+          ),
+        ),
         if (_categories.isNotEmpty)
           SizedBox(
             height: 48,
@@ -169,9 +188,15 @@ class _ProductBrowseScreenState extends State<ProductBrowseScreen> {
         Expanded(
           child: filtered.isEmpty
               ? ListView(
-                  children: const [
-                    SizedBox(height: 120),
-                    Center(child: Text('No products in this category.')),
+                  children: [
+                    const SizedBox(height: 120),
+                    Center(
+                      child: Text(
+                        _search.trim().isNotEmpty
+                            ? 'No products match "$_search".'
+                            : 'No products in this category.',
+                      ),
+                    ),
                   ],
                 )
               : ListView.separated(

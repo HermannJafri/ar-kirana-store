@@ -5,8 +5,6 @@ import '../services/api_service.dart';
 const Map<String, Color> _statusColors = {
   'PENDING': Colors.amber,
   'CONFIRMED': Colors.blue,
-  'PICKING': Colors.indigo,
-  'PACKED': Colors.purple,
   'OUT_FOR_DELIVERY': Colors.cyan,
   'DELIVERED': Colors.green,
   'CANCELLED': Colors.red,
@@ -100,6 +98,10 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                   const SizedBox(height: 4),
                   Text('Placed at: ${_formatDate(order.createdAt)}'),
                   Text('Payment: ${order.paymentStatus} (Cash on Delivery)'),
+                  if (order.paymentStatus == 'PARTIAL')
+                    Text(
+                      'Received ₹${order.amountPaid.toStringAsFixed(2)} · Remaining ₹${(order.totalAmount - order.amountPaid).toStringAsFixed(2)}',
+                    ),
                   if (order.deliveryAddress != null) Text('Deliver to: ${order.deliveryAddress}'),
                 ],
               ),

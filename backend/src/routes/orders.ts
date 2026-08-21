@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { Prisma, OrderStatus } from "@prisma/client";
+import { Prisma, OrderStatus, PaymentStatus } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { authenticate, requireRole } from "../middleware/auth";
 
@@ -132,19 +132,20 @@ ordersRouter.get("/:id", async (req, res) => {
 
 // Valid forward transitions. CANCELLED is reachable from any status up to
 // (not including) OUT_FOR_DELIVERY, per PROJECT_PROMPT.md's status flow.
-// DELIVERED isn't reachable here — that's Delivery's "payment collected"
-// action (Phase 5), not a plain status update.
+// DELIVERED is a plain Staff/Owner action here — there's no separate
+// delivery role/login in this app, so whoever brings the order back marks
+// it delivered (and records payment, see PATCH /:id/payment) from the
+// dashboard themselves.
 const NEXT_STATUS: Partial<Record<OrderStatus, OrderStatus[]>> = {
   PENDING: [OrderStatus.CONFIRMED, OrderStatus.CANCELLED],
-  CONFIRMED: [OrderStatus.PICKING, OrderStatus.CANCELLED],
-  PICKING: [OrderStatus.PACKED, OrderStatus.CANCELLED],
-  PACKED: [OrderStatus.OUT_FOR_DELIVERY, OrderStatus.CANCELLED],
+  CONFIRMED: [OrderStatus.OUT_FOR_DELIVERY, OrderStatus.CANCELLED],
+  OUT_FOR_DELIVERY: [OrderStatus.DELIVERED],
 };
 
 const STATUS_TIMESTAMP_FIELD: Partial<Record<OrderStatus, string>> = {
   CONFIRMED: "confirmedAt",
-  PACKED: "packedAt",
   OUT_FOR_DELIVERY: "outForDeliveryAt",
+  DELIVERED: "deliveredAt",
   CANCELLED: "cancelledAt",
 };
 
@@ -175,6 +176,45 @@ ordersRouter.patch("/:id/status", requireRole("STAFF", "OWNER"), async (req, res
     data: {
       status: status as OrderStatus,
       ...(timestampField ? { [timestampField]: new Date() } : {}),
+    },
+    include: ORDER_INCLUDE,
+  });
+
+  res.json(order);
+});
+
+function computePaymentStatus(amountPaid: number, totalAmount: number): PaymentStatus {
+  if (amountPaid <= 0) return PaymentStatus.PENDING;
+  if (amountPaid >= totalAmount) return PaymentStatus.COLLECTED;
+  return PaymentStatus.PARTIAL;
+}
+
+// PATCH /orders/:id/payment - record cash physically brought back to the
+// shop (Staff/Owner only). There's no delivery-side action for this — see
+// PROJECT_PROMPT.md's "no separate delivery role" note. `amount` is added to
+// the running `amountPaid` total, so a part-paid order can be topped up
+// across multiple visits; paymentStatus is derived, never set directly.
+ordersRouter.patch("/:id/payment", requireRole("STAFF", "OWNER"), async (req, res) => {
+  const existing = await prisma.order.findUnique({ where: { id: req.params.id } });
+  if (!existing || existing.shopId !== req.user!.shopId) {
+    res.status(404).json({ error: "Order not found" });
+    return;
+  }
+
+  const { amount } = req.body ?? {};
+  if (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0) {
+    res.status(400).json({ error: "amount must be a positive number" });
+    return;
+  }
+
+  const newAmountPaid = Number(existing.amountPaid) + amount;
+  const totalAmount = Number(existing.totalAmount);
+
+  const order = await prisma.order.update({
+    where: { id: req.params.id },
+    data: {
+      amountPaid: newAmountPaid,
+      paymentStatus: computePaymentStatus(newAmountPaid, totalAmount),
     },
     include: ORDER_INCLUDE,
   });
