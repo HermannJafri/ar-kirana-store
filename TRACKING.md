@@ -642,6 +642,77 @@ own delete tests (nothing left to clean up afterward).
 
 **Exit criteria: met, directly verified 2026-08-21.**
 
+### Pre-demo cleanup + admin credential rotation (2026-08-22)
+
+Executed via the real API endpoints (not raw DB surgery, except where no endpoint
+exists), per an explicit go-ahead after a full status-report audit.
+
+- **Deleted all 7 test orders** via `DELETE /orders/:id`.
+- **Deleted 4 test customers** (`Phase3TestCustomer`, `Phase A2 Customer`,
+  `Phase A3 Customer`, `Phase Accept Test`) via `DELETE /customers/:id` — Firebase
+  Auth accounts and `User` rows both gone. Kept `abis sam` (mobile `7779816137`) as
+  the one demo customer account, unchanged.
+- **Hard-deleted both test products** (`Test Atta 5kg`, `Test Rice 1kg`) directly via
+  Prisma — no `DELETE /products/:id` endpoint exists (the app's normal pattern is
+  soft-deactivate), but with their `OrderItem` rows already gone from the order
+  cleanup above there was nothing left for a hard delete to orphan, and "gone from
+  the list, not lingering as deactivated" is what a pre-demo reset actually needs.
+  Categories (`Grains`, `Snacks`) kept as-is.
+- **Admin account rotated**: username `owner` → `admin`, a fresh cryptographically
+  random 20-character password generated and set, Firebase email migrated
+  `owner@internal.local` → `admin@internal.local` (same email-sync mechanism as the
+  customer reset-password fix), display name `"Phase 2 Test Owner"` →
+  `"Store Owner"`, stale unused `email` column cleared. Verified three ways: old
+  credentials now fail (`INVALID_LOGIN_CREDENTIALS`), new credentials succeed via a
+  direct Firebase Auth REST call, and via the actual dashboard login UI (Playwright)
+  — header correctly reads "Store Owner (OWNER)" post-login.
+- [~] **Shop coordinates** — still the placeholder lat/lng from earlier Phase A
+  testing (17.397, 78.445). **Blocked on the real shop location from the user** —
+  not updated yet.
+- [~] **In-radius address acceptance re-verification** — blocked on the above; not
+  re-run this round.
+
+**Verified after cleanup:** Firebase Auth user count 6 → 2 (`admin@internal.local`,
+`7779816137@internal.local`), `User` table 6 → 2, `Product` table 2 → 0, `Order`
+table 7 → 0, `Category` table unchanged (2).
+
+### Deployment prep (2026-08-22)
+
+Not deployed — prep only, per explicit instruction. No GitHub remote exists on this
+repo yet (`git remote -v` empty); nothing has been pushed anywhere.
+
+- **Backend (Render)**: `backend/package.json`'s `build` script now runs
+  `prisma generate` before `tsc` (previously relied on Prisma's implicit
+  postinstall hook, which is fragile to rely on for a deploy pipeline). New
+  `render.yaml` at the repo root (`rootDir: backend`, so Render's Blueprint
+  monorepo support picks the right subfolder) — `buildCommand` runs
+  `npm install && npx prisma migrate deploy && npm run build`, `startCommand`
+  `npm start`, `healthCheckPath: /health`. All secret env vars declared with
+  `sync: false` (names only, committed; values entered manually in Render's
+  dashboard, never in this repo or chat) — `DATABASE_URL`, `SUPABASE_URL`,
+  `SUPABASE_SERVICE_ROLE_KEY`, `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`,
+  `FIREBASE_PRIVATE_KEY`, `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`,
+  `CLOUDINARY_API_SECRET`. `NODE_ENV=production` is the one non-secret value
+  committed directly.
+  - [x] Verified: killed the locally-running dev server (it was holding the Prisma
+    query-engine DLL, a known Windows-only lock issue that doesn't occur in Render's
+    fresh Linux containers), ran the exact updated `npm run build` locally — Prisma
+    Client regenerated, `tsc` compiled clean, `dist/index.js` produced.
+- **Dashboard (Vercel)**: no `vercel.json` needed — Vercel auto-detects Next.js; the
+  monorepo just needs "Root Directory" set to `dashboard` in the Vercel project
+  settings (same idea as Render's `rootDir`). Env vars to set in Vercel's dashboard:
+  `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`,
+  `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID` (all already
+  public/non-secret, currently in `dashboard/.env.local`), and
+  `NEXT_PUBLIC_API_BASE_URL` — **set this only after the Render backend has a live
+  URL**, pointing at it (e.g. `https://kirana-store-backend.onrender.com`).
+  - [x] Verified: `npm run build` (`next build`) succeeds cleanly — all 9 routes
+    compiled and statically optimized, zero errors.
+
+**Exit criteria: cleanup and deployment prep done and verified; actual deployment,
+shop-coordinate update, and in-radius re-verification are pending user action /
+input.**
+
 ---
 
 ## Deferred / Phase 2+ (not in current scope)
