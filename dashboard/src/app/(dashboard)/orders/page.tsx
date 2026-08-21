@@ -13,8 +13,11 @@ import {
   Descriptions,
   Input,
   InputNumber,
+  Popconfirm,
 } from "antd";
+import { DeleteOutlined } from "@ant-design/icons";
 import { authFetch } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 
 const POLL_MS = 20000;
 
@@ -82,6 +85,7 @@ function formatAddress(c: Customer): string {
 }
 
 export default function OrdersPage() {
+  const { profile } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
@@ -90,6 +94,7 @@ export default function OrdersPage() {
   const [detail, setDetail] = useState<Order | null>(null);
   const [updating, setUpdating] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const requestIdRef = useRef(0);
 
   const load = async (silent = false) => {
@@ -165,6 +170,20 @@ export default function OrdersPage() {
     }
   };
 
+  const deleteOrder = async (order: Order) => {
+    setDeletingId(order.id);
+    try {
+      await authFetch(`/orders/${order.id}`, { method: "DELETE" });
+      message.success(`Order #${order.id.slice(0, 8)} deleted permanently`);
+      setOrders((prev) => prev.filter((o) => o.id !== order.id));
+      if (detail?.id === order.id) setDetail(null);
+    } catch (e) {
+      message.error((e as Error).message);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const columns = [
     {
       title: "Status",
@@ -193,9 +212,29 @@ export default function OrdersPage() {
     {
       title: "Actions",
       render: (_: unknown, o: Order) => (
-        <Button size="small" onClick={() => setDetail(o)}>
-          View
-        </Button>
+        <Space>
+          <Button size="small" onClick={() => setDetail(o)}>
+            View
+          </Button>
+          {profile?.role === "OWNER" && (
+            <Popconfirm
+              title="Delete this order permanently?"
+              description={
+                <span>
+                  This cannot be undone. Order #{o.id.slice(0, 8)} and its items will
+                  be permanently deleted.
+                  <br />
+                  This does not restore stock quantity.
+                </span>
+              }
+              okText="Delete permanently"
+              okButtonProps={{ danger: true }}
+              onConfirm={() => deleteOrder(o)}
+            >
+              <Button size="small" danger icon={<DeleteOutlined />} loading={deletingId === o.id} />
+            </Popconfirm>
+          )}
+        </Space>
       ),
     },
   ];
@@ -263,6 +302,19 @@ export default function OrdersPage() {
                   {STATUS_LABELS[next] ?? next}
                 </Button>
               ))}
+              {profile?.role === "OWNER" && (
+                <Popconfirm
+                  title="Delete this order permanently?"
+                  description="This cannot be undone. It does not restore stock quantity."
+                  okText="Delete permanently"
+                  okButtonProps={{ danger: true }}
+                  onConfirm={() => deleteOrder(detail)}
+                >
+                  <Button danger icon={<DeleteOutlined />} loading={deletingId === detail.id}>
+                    Delete
+                  </Button>
+                </Popconfirm>
+              )}
               <Button onClick={() => setDetail(null)}>Close</Button>
             </Space>
           )

@@ -231,3 +231,23 @@ ordersRouter.patch("/:id/payment", requireRole("STAFF", "OWNER"), async (req, re
 
   res.json(order);
 });
+
+// DELETE /:id - permanently remove an order (Owner only — same bar as the
+// other irreversible actions in this app, e.g. customer deletion). Unlike a
+// customer, an order has nothing else pointing at it, so there's no FK
+// block to enforce; the confirmation happens on the dashboard side instead.
+// Note: this does not restore Product.quantityAvailable, matching the
+// existing CANCELLED-status behavior (stock is never given back once
+// decremented at order placement) — deleting an order is data cleanup, not
+// an inventory operation.
+ordersRouter.delete("/:id", requireRole("OWNER"), async (req, res) => {
+  const existing = await prisma.order.findUnique({ where: { id: req.params.id } });
+  if (!existing || existing.shopId !== req.user!.shopId) {
+    res.status(404).json({ error: "Order not found" });
+    return;
+  }
+
+  await prisma.orderItem.deleteMany({ where: { orderId: existing.id } });
+  await prisma.order.delete({ where: { id: existing.id } });
+  res.status(204).send();
+});

@@ -616,6 +616,30 @@ scripts earlier in this session (`no-mobile-test@internal.local`,
 `dupe-test-2@internal.local`) — harmless (no matching `User` row, not reachable by
 any real customer) but no reason to leave them sitting in the Firebase console.
 
+### Delete order (dashboard Orders page)
+
+Requested as a follow-up, mirroring Delete Customer. `DELETE /orders/:id` (Owner
+only). Unlike a customer, an order has nothing else pointing at it (no FK to
+protect), so this always succeeds for a valid order in the caller's shop — no
+"blocked if..." case needed. Deletes the order's `OrderItem` rows first, then the
+`Order`. Explicitly does **not** restore `Product.quantityAvailable` — matches the
+existing behavior of the CANCELLED status, which also never gives stock back, so
+"delete" and "cancel" stay consistent with each other rather than delete quietly
+doing more than cancel does. Dashboard: a delete button in both the table's Actions
+column and the order detail modal's footer, Owner-only, behind the same
+"cannot be undone" `Popconfirm` pattern as Delete Customer.
+
+- [x] Verified via `curl` (`204`, then confirmed via a direct DB query that both the
+  `Order` and its `OrderItem` rows are gone — no orphaned items left behind).
+- [x] Verified via the actual dashboard UI (Playwright): searched for the order,
+  opened the real Popconfirm (confirmed the exact warning text, including the "does
+  not restore stock quantity" note), clicked through the real "Delete permanently"
+  button, saw the success toast, and the row disappeared from the table.
+
+**Test fixtures added/removed:** two throwaway orders created directly via Prisma to
+drive the `curl` and dashboard-UI verifications respectively; both consumed by their
+own delete tests (nothing left to clean up afterward).
+
 **Exit criteria: met, directly verified 2026-08-21.**
 
 ---
