@@ -578,6 +578,44 @@ Customer feature before this bug was reported — deleting it also correctly rem
 its Firebase account, per Delete Customer's existing behavior, which is part of why
 the duplicate-mobile conflict resolved cleanly once the orphan was cleared.
 
+### Bug 3 — dashboard reset-password field autofilled with the Owner's own login password
+
+Found by the user via a screenshot right after Bugs 1/2 were fixed: opening the
+"Reset password" modal for a customer showed the field pre-filled and highlighted
+with the *Owner's own dashboard login password* — the browser's saved-credential
+autofill matched a plain `<input type="password">` with no hint that it wasn't a
+login field, and silently offered (and in at least one case, per the user's report,
+apparently submitted) the wrong value. This is a real, dangerous bug distinct from
+Bugs 1/2: it could set a customer's password to the *staff member's own* password
+without anyone noticing, and it's the actual explanation for "I reset it and the
+password is still the same" — the field wasn't empty when they thought it was.
+
+- **Fix:** `Input.Password` (`dashboard/src/app/(dashboard)/customers/page.tsx`) now
+  sets `autoComplete="new-password"` plus `data-lpignore`/`data-1p-ignore`, the
+  standard signals browsers and password managers respect to *not* offer a saved
+  login credential. Also added a second "Confirm new password" field — the submit
+  button stays disabled until both match — which both catches an accidental
+  autofill-then-submit (two different saved values won't match) and is generally the
+  right UX for a password-setting form regardless of the autofill issue.
+- [x] Verified via Playwright (persistent browser context, not just an isolated
+  page): field is empty on open, mismatched passwords correctly disable the submit
+  button, matching passwords enable it, and the real submit — clicked through the
+  actual UI, not a direct API call — correctly changed the account's password
+  (confirmed via a Firebase Auth REST login immediately after).
+
+The "customer table went blank" part of the same report turned out not to be a bug:
+the search box still had "owner" typed in it from testing the Reset flow, and no
+customer is named "Owner" — zero matching rows is the correct behavior for that
+query, not broken data. Worth a note for future UI polish (an empty state that says
+*why* — "no matches for 'owner'" vs. a bare empty table — would have made this
+obvious in the moment), but not fixed as a code change this round since it wasn't a
+defect.
+
+**Also cleaned up:** two Firebase accounts left over from *my own* backend-only test
+scripts earlier in this session (`no-mobile-test@internal.local`,
+`dupe-test-2@internal.local`) — harmless (no matching `User` row, not reachable by
+any real customer) but no reason to leave them sitting in the Firebase console.
+
 **Exit criteria: met, directly verified 2026-08-21.**
 
 ---

@@ -30,6 +30,7 @@ export default function CustomersPage() {
   const [search, setSearch] = useState("");
   const [resetTarget, setResetTarget] = useState<Customer | null>(null);
   const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [resetting, setResetting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -59,8 +60,10 @@ export default function CustomersPage() {
     );
   });
 
+  const resetValid = newPassword.length >= 6 && newPassword === confirmPassword;
+
   const submitReset = async () => {
-    if (!resetTarget || newPassword.length < 6) return;
+    if (!resetTarget || !resetValid) return;
     setResetting(true);
     try {
       await authFetch(`/customers/${resetTarget.id}/reset-password`, {
@@ -70,6 +73,7 @@ export default function CustomersPage() {
       message.success(`Password reset for ${resetTarget.name}`);
       setResetTarget(null);
       setNewPassword("");
+      setConfirmPassword("");
     } catch (e) {
       message.error((e as Error).message);
     } finally {
@@ -109,6 +113,7 @@ export default function CustomersPage() {
             onClick={() => {
               setResetTarget(c);
               setNewPassword("");
+              setConfirmPassword("");
             }}
           >
             Reset password
@@ -161,9 +166,13 @@ export default function CustomersPage() {
       <Modal
         title={resetTarget ? `Reset password — ${resetTarget.name}` : ""}
         open={!!resetTarget}
-        onCancel={() => setResetTarget(null)}
+        onCancel={() => {
+          setResetTarget(null);
+          setNewPassword("");
+          setConfirmPassword("");
+        }}
         onOk={submitReset}
-        okButtonProps={{ disabled: newPassword.length < 6, loading: resetting }}
+        okButtonProps={{ disabled: !resetValid, loading: resetting }}
         okText="Set new password"
       >
         <Typography.Paragraph type="secondary">
@@ -172,12 +181,32 @@ export default function CustomersPage() {
           anyone (it&apos;s never stored anywhere in readable form, by design). Set a new one
           here and let them know it in person or over a call.
         </Typography.Paragraph>
-        <Input.Password
-          placeholder="New password (min 6 characters)"
-          value={newPassword}
-          onChange={(e) => setNewPassword(e.target.value)}
-          visibilityToggle
-        />
+        <Space direction="vertical" style={{ width: "100%" }}>
+          <Input.Password
+            placeholder="New password (min 6 characters)"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            visibilityToggle
+            autoComplete="new-password"
+            name="reset-customer-password"
+            data-lpignore="true"
+            data-1p-ignore
+          />
+          <Input.Password
+            placeholder="Confirm new password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            visibilityToggle
+            autoComplete="new-password"
+            name="reset-customer-password-confirm"
+            data-lpignore="true"
+            data-1p-ignore
+            status={confirmPassword && newPassword !== confirmPassword ? "error" : undefined}
+          />
+          {confirmPassword && newPassword !== confirmPassword && (
+            <Typography.Text type="danger">Passwords don&apos;t match.</Typography.Text>
+          )}
+        </Space>
       </Modal>
     </div>
   );
