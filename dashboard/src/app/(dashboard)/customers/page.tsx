@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Table, Button, Modal, Input, Space, Typography, message } from "antd";
+import { Table, Button, Modal, Input, Space, Typography, message, Popconfirm } from "antd";
+import { DeleteOutlined } from "@ant-design/icons";
 import { authFetch } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 
 interface Customer {
   id: string;
@@ -22,12 +24,14 @@ function formatAddress(c: Customer): string {
 }
 
 export default function CustomersPage() {
+  const { profile } = useAuth();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [resetTarget, setResetTarget] = useState<Customer | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [resetting, setResetting] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -73,6 +77,19 @@ export default function CustomersPage() {
     }
   };
 
+  const deleteCustomer = async (c: Customer) => {
+    setDeletingId(c.id);
+    try {
+      await authFetch(`/customers/${c.id}`, { method: "DELETE" });
+      message.success(`${c.name} deleted permanently`);
+      setCustomers((prev) => prev.filter((x) => x.id !== c.id));
+    } catch (e) {
+      message.error((e as Error).message);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const columns = [
     { title: "Name", dataIndex: "name" },
     { title: "Mobile", render: (_: unknown, c: Customer) => c.mobile ?? "—" },
@@ -86,15 +103,35 @@ export default function CustomersPage() {
     {
       title: "Actions",
       render: (_: unknown, c: Customer) => (
-        <Button
-          size="small"
-          onClick={() => {
-            setResetTarget(c);
-            setNewPassword("");
-          }}
-        >
-          Reset password
-        </Button>
+        <Space>
+          <Button
+            size="small"
+            onClick={() => {
+              setResetTarget(c);
+              setNewPassword("");
+            }}
+          >
+            Reset password
+          </Button>
+          {profile?.role === "OWNER" && (
+            <Popconfirm
+              title="Delete this customer permanently?"
+              description={
+                <span>
+                  This cannot be undone. {c.name}&apos;s account and profile will be
+                  permanently deleted.
+                  <br />
+                  (Blocked if they have any past orders, to protect order history.)
+                </span>
+              }
+              okText="Delete permanently"
+              okButtonProps={{ danger: true }}
+              onConfirm={() => deleteCustomer(c)}
+            >
+              <Button size="small" danger icon={<DeleteOutlined />} loading={deletingId === c.id} />
+            </Popconfirm>
+          )}
+        </Space>
       ),
     },
   ];

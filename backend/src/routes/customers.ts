@@ -56,3 +56,37 @@ customersRouter.patch("/:id/reset-password", async (req, res) => {
   await firebaseAuth.updateUser(customer.firebaseUid, { password });
   res.json({ success: true });
 });
+
+// DELETE /:id - permanently remove a customer (Owner only — more
+// destructive than the rest of this router's Staff+Owner actions, so held
+// to the same bar as other irreversible account operations). Blocked if the
+// customer has any orders on record: hard-deleting them would either fail
+// on the FK constraint or (if cascaded) destroy real order/revenue history,
+// neither of which is what "delete this customer" should silently do.
+customersRouter.delete("/:id", requireRole("OWNER"), async (req, res) => {
+  const customer = await prisma.user.findUnique({ where: { id: req.params.id } });
+  if (!customer || customer.shopId !== req.user!.shopId || customer.role !== "CUSTOMER") {
+    res.status(404).json({ error: "Customer not found" });
+    return;
+  }
+
+  const orderCount = await prisma.order.count({ where: { customerId: customer.id } });
+  if (orderCount > 0) {
+    res.status(409).json({
+      error: `Cannot delete — this customer has ${orderCount} order${orderCount === 1 ? "" : "s"} on record. Deleting them would destroy real order history.`,
+    });
+    return;
+  }
+
+  if (customer.firebaseUid) {
+    try {
+      await firebaseAuth.deleteUser(customer.firebaseUid);
+    } catch {
+      // Firebase account may already be gone/inconsistent — don't let that
+      // block cleaning up the database row.
+    }
+  }
+
+  await prisma.user.delete({ where: { id: customer.id } });
+  res.status(204).send();
+});

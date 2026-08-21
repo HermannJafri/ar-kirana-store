@@ -502,6 +502,29 @@ User`, mobile `9876500011`) and one created via the actual on-device Sign Up scr
 (`Emulator`, mobile `9123456780`) — both cleaned up (Firebase Auth account + `User`
 row deleted) after verification.
 
+### Delete customer (dashboard Customers page)
+
+Requested as a follow-up. `DELETE /customers/:id` (Owner only — more destructive than
+the rest of the Customers router's Staff+Owner actions, so held to the same bar as
+other irreversible operations). Deletes the Firebase Auth account and the `User` row.
+**Blocked if the customer has any orders on record** (`409` with the order count in
+the message): hard-deleting them would either fail on the `Order.customerId` FK
+constraint or, if cascaded, destroy real order/revenue history — neither is what
+"delete this customer" should silently do. Dashboard: a delete (trash icon) button
+next to "Reset password", Owner-only, wrapped in an antd `Popconfirm` that spells out
+"This cannot be undone" before the actual delete request fires.
+
+- [x] Confirmation dialog shown before deleting, wording verified via Playwright screenshot ("Delete this customer permanently? This cannot be undone... Blocked if they have any past orders, to protect order history.").
+- [x] Successful delete (customer with zero orders) — verified via `curl` (`204`, row gone from a direct DB query afterward) and again via the actual dashboard UI (clicked through the real Popconfirm, saw the success toast, row disappeared from the table).
+- [x] Blocked delete (customer with orders) — verified via `curl` (`409`, exact order count in the message, row still present in the DB afterward) and via the dashboard UI (clicked through the real Popconfirm on `Phase A2 Customer`, who has 2 real orders; got the error toast, row remained in the table — order history was never at risk).
+
+**Test fixtures added/removed:** two throwaway customers created directly via Prisma
+(`Delete Test NoOrders`, `Delete Test WithOrders` — the latter with one throwaway
+order attached) to prove the `curl`-level block/allow behavior, plus one more
+(`Delete UI Test`) to drive the actual Popconfirm-to-deletion flow through the
+dashboard. All cleaned up after verification (the with-orders one required deleting
+its `OrderItem`/`Order` rows first, same as the customer-side cascade would need).
+
 **Exit criteria: met, directly verified 2026-08-21.**
 
 ---
