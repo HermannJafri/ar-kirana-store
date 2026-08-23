@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Card, Col, DatePicker, message, Row, Segmented, Spin, Statistic, Typography } from "antd";
 import dayjs, { Dayjs } from "dayjs";
 import { authFetch } from "@/lib/api";
+import { useIsMobile } from "@/lib/responsive";
 import SalesByItemChart, { ProductSales } from "./SalesByItemChart";
 
 const { RangePicker } = DatePicker;
@@ -18,6 +19,7 @@ export default function AnalyticsPage() {
   const [metric, setMetric] = useState<"revenue" | "quantity">("revenue");
   const [data, setData] = useState<SalesResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const isMobile = useIsMobile();
   const requestIdRef = useRef(0);
 
   useEffect(() => {
@@ -41,13 +43,23 @@ export default function AnalyticsPage() {
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 12,
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 16,
+        }}
+      >
         <Typography.Title level={4} style={{ margin: 0 }}>
           Sales Analytics
         </Typography.Title>
         <RangePicker
           value={range}
           allowClear={false}
+          style={isMobile ? { width: "100%" } : undefined}
           onChange={(values) => {
             if (values && values[0] && values[1]) setRange([values[0], values[1]]);
           }}
@@ -55,8 +67,8 @@ export default function AnalyticsPage() {
       </div>
 
       <Spin spinning={loading}>
-        <Row gutter={16} style={{ marginBottom: 24 }}>
-          <Col span={8}>
+        <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
+          <Col xs={24} sm={8}>
             <Card>
               <Statistic
                 title="Total revenue"
@@ -66,12 +78,12 @@ export default function AnalyticsPage() {
               />
             </Card>
           </Col>
-          <Col span={8}>
+          <Col xs={24} sm={8}>
             <Card>
               <Statistic title="Orders" value={data?.summary.orderCount ?? 0} />
             </Card>
           </Col>
-          <Col span={8}>
+          <Col xs={24} sm={8}>
             <Card>
               <Statistic
                 title="Average order value"
@@ -85,14 +97,22 @@ export default function AnalyticsPage() {
 
         <Card
           title="Sales by item"
+          styles={{ header: { flexWrap: "wrap", height: "auto", paddingTop: 8, paddingBottom: 8 } }}
           extra={
             <Segmented
               value={metric}
               onChange={(v) => setMetric(v as "revenue" | "quantity")}
-              options={[
-                { label: "By Revenue", value: "revenue" },
-                { label: "By Quantity", value: "quantity" },
-              ]}
+              options={
+                isMobile
+                  ? [
+                      { label: "Revenue", value: "revenue" },
+                      { label: "Quantity", value: "quantity" },
+                    ]
+                  : [
+                      { label: "By Revenue", value: "revenue" },
+                      { label: "By Quantity", value: "quantity" },
+                    ]
+              }
             />
           }
         >

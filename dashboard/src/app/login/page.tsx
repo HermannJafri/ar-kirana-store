@@ -31,8 +31,16 @@ export default function LoginPage() {
   };
 
   return (
-    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "100vh" }}>
-      <Card style={{ width: 360 }}>
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        minHeight: "100vh",
+        padding: 16,
+      }}
+    >
+      <Card style={{ width: "100%", maxWidth: 360 }}>
         <Typography.Title level={3}>Kirana Store — Staff Login</Typography.Title>
         {error && <Alert type="error" message={error} style={{ marginBottom: 16 }} />}
         <Form layout="vertical" onFinish={onFinish}>

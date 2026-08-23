@@ -16,11 +16,14 @@ import {
   Space,
   Tabs,
   List,
+  Card,
+  Typography,
 } from "antd";
 import { UploadOutlined, TagsOutlined, DeleteOutlined, EditOutlined, CheckOutlined } from "@ant-design/icons";
 import type { UploadProps } from "antd";
 import { authFetch, API_BASE } from "@/lib/api";
 import { auth } from "@/lib/firebase";
+import { useIsMobile } from "@/lib/responsive";
 
 interface Category {
   id: string;
@@ -51,6 +54,7 @@ interface ProductFormValues {
 }
 
 export default function ProductsPage() {
+  const isMobile = useIsMobile();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
@@ -293,17 +297,17 @@ export default function ProductsPage() {
 
   return (
     <div>
-      <Space style={{ marginBottom: 16 }}>
-        <Button type="primary" onClick={openCreate}>
+      <Space style={{ marginBottom: 16, width: "100%", flexWrap: "wrap" }}>
+        <Button type="primary" onClick={openCreate} block={isMobile}>
           Add product
         </Button>
-        <Button icon={<TagsOutlined />} onClick={() => setCategoryModalOpen(true)}>
+        <Button icon={<TagsOutlined />} onClick={() => setCategoryModalOpen(true)} block={isMobile}>
           Manage categories
         </Button>
         <Input.Search
           placeholder="Search products by name"
           allowClear
-          style={{ width: 280 }}
+          style={{ width: isMobile ? "100%" : 280 }}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -315,13 +319,50 @@ export default function ProductsPage() {
         items={categoryTabs.map((t) => ({ key: t.key, label: t.label }))}
       />
 
-      <Table
-        rowKey="id"
-        loading={loading}
-        columns={columns}
-        dataSource={filteredProducts}
-        locale={{ emptyText: "No products match." }}
-      />
+      {isMobile ? (
+        <List
+          loading={loading}
+          dataSource={filteredProducts}
+          locale={{ emptyText: "No products match." }}
+          renderItem={(record) => (
+            <Card size="small" style={{ marginBottom: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                <Typography.Text strong>{record.name}</Typography.Text>
+                <Typography.Text type={record.isAvailable ? "success" : "secondary"}>
+                  {record.isAvailable ? "Available" : "Unavailable"}
+                </Typography.Text>
+              </div>
+              <Typography.Text type="secondary" style={{ display: "block", marginBottom: 4 }}>
+                {record.category?.name ?? "Uncategorized"}
+              </Typography.Text>
+              <Typography.Text style={{ display: "block", marginBottom: 12 }}>
+                ₹{Number(record.price).toFixed(2)}
+                {record.unit ? ` / ${record.unit}` : ""} · Stock: {record.quantityAvailable}
+              </Typography.Text>
+              <Space direction="vertical" style={{ width: "100%" }}>
+                <Button block onClick={() => openEdit(record)}>
+                  Edit
+                </Button>
+                {record.isAvailable && (
+                  <Popconfirm title="Deactivate this product?" onConfirm={() => deactivate(record.id)}>
+                    <Button block danger>
+                      Deactivate
+                    </Button>
+                  </Popconfirm>
+                )}
+              </Space>
+            </Card>
+          )}
+        />
+      ) : (
+        <Table
+          rowKey="id"
+          loading={loading}
+          columns={columns}
+          dataSource={filteredProducts}
+          locale={{ emptyText: "No products match." }}
+        />
+      )}
 
       <Modal
         title={editing ? "Edit product" : "Add product"}
@@ -330,8 +371,9 @@ export default function ProductsPage() {
         onOk={submit}
         okText="Save"
         confirmLoading={saving}
+        width={isMobile ? "92%" : 520}
       >
-        <Form form={form} layout="vertical">
+        <Form form={form} layout="vertical" size={isMobile ? "large" : "middle"}>
           <Form.Item name="name" label="Name" rules={[{ required: true, message: "Name is required" }]}>
             <Input />
           </Form.Item>
@@ -384,15 +426,17 @@ export default function ProductsPage() {
         open={categoryModalOpen}
         onCancel={() => setCategoryModalOpen(false)}
         footer={null}
+        width={isMobile ? "92%" : 520}
       >
         <Space.Compact style={{ width: "100%", marginBottom: 16 }}>
           <Input
+            size={isMobile ? "large" : "middle"}
             placeholder="New category name"
             value={newCategoryName}
             onChange={(e) => setNewCategoryName(e.target.value)}
             onPressEnter={addCategory}
           />
-          <Button type="primary" loading={categorySaving} onClick={addCategory}>
+          <Button type="primary" size={isMobile ? "large" : "middle"} loading={categorySaving} onClick={addCategory}>
             Add
           </Button>
         </Space.Compact>
@@ -404,26 +448,36 @@ export default function ProductsPage() {
               <List.Item key={c.id}>
                 <Space.Compact style={{ width: "100%" }}>
                   <Input
+                    size={isMobile ? "large" : "middle"}
                     value={renameValue}
                     onChange={(e) => setRenameValue(e.target.value)}
                     onPressEnter={() => saveRename(c.id)}
                     autoFocus
                   />
-                  <Button icon={<CheckOutlined />} onClick={() => saveRename(c.id)} />
+                  <Button
+                    size={isMobile ? "large" : "middle"}
+                    icon={<CheckOutlined />}
+                    onClick={() => saveRename(c.id)}
+                  />
                 </Space.Compact>
               </List.Item>
             ) : (
               <List.Item
                 key={c.id}
                 actions={[
-                  <Button key="edit" size="small" icon={<EditOutlined />} onClick={() => startRename(c)} />,
+                  <Button
+                    key="edit"
+                    size={isMobile ? "middle" : "small"}
+                    icon={<EditOutlined />}
+                    onClick={() => startRename(c)}
+                  />,
                   <Popconfirm
                     key="delete"
                     title="Delete this category?"
                     description="Products in it become uncategorized, not deleted."
                     onConfirm={() => deleteCategory(c.id)}
                   >
-                    <Button size="small" danger icon={<DeleteOutlined />} />
+                    <Button size={isMobile ? "middle" : "small"} danger icon={<DeleteOutlined />} />
                   </Popconfirm>,
                 ]}
               >

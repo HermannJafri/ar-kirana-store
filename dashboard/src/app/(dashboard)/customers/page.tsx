@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Table, Button, Modal, Input, Space, Typography, message, Popconfirm } from "antd";
+import { Table, Button, Modal, Input, Space, Typography, message, Popconfirm, List, Card } from "antd";
 import { DeleteOutlined } from "@ant-design/icons";
 import { authFetch } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import { useIsMobile } from "@/lib/responsive";
 
 interface Customer {
   id: string;
@@ -25,6 +26,7 @@ function formatAddress(c: Customer): string {
 
 export default function CustomersPage() {
   const { profile } = useAuth();
+  const isMobile = useIsMobile();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -61,6 +63,12 @@ export default function CustomersPage() {
   });
 
   const resetValid = newPassword.length >= 6 && newPassword === confirmPassword;
+
+  const openReset = (c: Customer) => {
+    setResetTarget(c);
+    setNewPassword("");
+    setConfirmPassword("");
+  };
 
   const submitReset = async () => {
     if (!resetTarget || !resetValid) return;
@@ -108,14 +116,7 @@ export default function CustomersPage() {
       title: "Actions",
       render: (_: unknown, c: Customer) => (
         <Space>
-          <Button
-            size="small"
-            onClick={() => {
-              setResetTarget(c);
-              setNewPassword("");
-              setConfirmPassword("");
-            }}
-          >
+          <Button size="small" onClick={() => openReset(c)}>
             Reset password
           </Button>
           {profile?.role === "OWNER" && (
@@ -143,25 +144,75 @@ export default function CustomersPage() {
 
   return (
     <div>
-      <Space style={{ marginBottom: 16, justifyContent: "space-between", width: "100%" }}>
+      <Space
+        style={{ marginBottom: 16, justifyContent: "space-between", width: "100%", flexWrap: "wrap" }}
+      >
         <Typography.Title level={4} style={{ margin: 0 }}>
           Customers
         </Typography.Title>
         <Input.Search
           allowClear
           placeholder="Search by name, mobile, or username"
-          style={{ width: 280 }}
+          style={{ width: isMobile ? "100%" : 280 }}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
       </Space>
-      <Table
-        rowKey="id"
-        loading={loading}
-        columns={columns}
-        dataSource={filtered}
-        locale={{ emptyText: "No customers yet." }}
-      />
+
+      {isMobile ? (
+        <List
+          loading={loading}
+          dataSource={filtered}
+          locale={{ emptyText: "No customers yet." }}
+          renderItem={(c) => (
+            <Card size="small" style={{ marginBottom: 8 }}>
+              <Typography.Text strong style={{ display: "block" }}>
+                {c.name}
+              </Typography.Text>
+              <Typography.Text type="secondary" style={{ display: "block" }}>
+                {c.mobile ?? "No mobile"}
+                {c.username ? ` · @${c.username}` : ""}
+              </Typography.Text>
+              <Typography.Text type="secondary" style={{ display: "block", marginBottom: 12 }}>
+                {formatAddress(c)}
+              </Typography.Text>
+              <Space direction="vertical" style={{ width: "100%" }}>
+                <Button block onClick={() => openReset(c)}>
+                  Reset password
+                </Button>
+                {profile?.role === "OWNER" && (
+                  <Popconfirm
+                    title="Delete this customer permanently?"
+                    description={
+                      <span>
+                        This cannot be undone. {c.name}&apos;s account and profile will be
+                        permanently deleted.
+                        <br />
+                        (Blocked if they have any past orders, to protect order history.)
+                      </span>
+                    }
+                    okText="Delete permanently"
+                    okButtonProps={{ danger: true }}
+                    onConfirm={() => deleteCustomer(c)}
+                  >
+                    <Button block danger icon={<DeleteOutlined />} loading={deletingId === c.id}>
+                      Delete
+                    </Button>
+                  </Popconfirm>
+                )}
+              </Space>
+            </Card>
+          )}
+        />
+      ) : (
+        <Table
+          rowKey="id"
+          loading={loading}
+          columns={columns}
+          dataSource={filtered}
+          locale={{ emptyText: "No customers yet." }}
+        />
+      )}
 
       <Modal
         title={resetTarget ? `Reset password — ${resetTarget.name}` : ""}
@@ -174,6 +225,7 @@ export default function CustomersPage() {
         onOk={submitReset}
         okButtonProps={{ disabled: !resetValid, loading: resetting }}
         okText="Set new password"
+        width={isMobile ? "92%" : 520}
       >
         <Typography.Paragraph type="secondary">
           There&apos;s no self-service &quot;forgot password&quot; for customers — this is the
@@ -183,6 +235,7 @@ export default function CustomersPage() {
         </Typography.Paragraph>
         <Space direction="vertical" style={{ width: "100%" }}>
           <Input.Password
+            size={isMobile ? "large" : "middle"}
             placeholder="New password (min 6 characters)"
             value={newPassword}
             onChange={(e) => setNewPassword(e.target.value)}
@@ -193,6 +246,7 @@ export default function CustomersPage() {
             data-1p-ignore
           />
           <Input.Password
+            size={isMobile ? "large" : "middle"}
             placeholder="Confirm new password"
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}

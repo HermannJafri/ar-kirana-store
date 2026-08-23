@@ -14,10 +14,13 @@ import {
   Input,
   InputNumber,
   Popconfirm,
+  List,
+  Card,
 } from "antd";
 import { DeleteOutlined } from "@ant-design/icons";
 import { authFetch } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import { useIsMobile } from "@/lib/responsive";
 
 const POLL_MS = 20000;
 
@@ -38,7 +41,7 @@ const PAYMENT_COLORS: Record<string, string> = {
 // Mirrors backend/src/routes/orders.ts's NEXT_STATUS map — what the
 // dashboard is allowed to move an order to next. There's no separate
 // delivery role/login in this app, so DELIVERED is a plain Staff/Owner
-// action here too, same as every other transition.
+// action here too, same as every other status.
 const NEXT_STATUS: Record<string, string[]> = {
   PENDING: ["CONFIRMED", "CANCELLED"],
   CONFIRMED: ["OUT_FOR_DELIVERY", "CANCELLED"],
@@ -86,6 +89,7 @@ function formatAddress(c: Customer): string {
 
 export default function OrdersPage() {
   const { profile } = useAuth();
+  const isMobile = useIsMobile();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined);
@@ -243,22 +247,24 @@ export default function OrdersPage() {
 
   return (
     <div>
-      <Space style={{ marginBottom: 16, justifyContent: "space-between", width: "100%" }}>
+      <Space
+        style={{ marginBottom: 16, justifyContent: "space-between", width: "100%", flexWrap: "wrap" }}
+      >
         <Typography.Title level={4} style={{ margin: 0 }}>
           Orders
         </Typography.Title>
-        <Space>
+        <Space wrap style={{ width: isMobile ? "100%" : undefined }}>
           <Input.Search
             allowClear
             placeholder="Search by customer, phone, or order ID"
-            style={{ width: 280 }}
+            style={{ width: isMobile ? "100%" : 280 }}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
           <Select
             allowClear
             placeholder="Filter by status"
-            style={{ width: 200 }}
+            style={{ width: isMobile ? "100%" : 200 }}
             value={statusFilter}
             onChange={setStatusFilter}
             options={Object.keys(STATUS_COLORS).map((s) => ({ value: s, label: s.replace(/_/g, " ") }))}
@@ -266,20 +272,84 @@ export default function OrdersPage() {
           <Select
             allowClear
             placeholder="Filter by payment"
-            style={{ width: 180 }}
+            style={{ width: isMobile ? "100%" : 180 }}
             value={paymentStatusFilter}
             onChange={setPaymentStatusFilter}
             options={Object.keys(PAYMENT_COLORS).map((s) => ({ value: s, label: s }))}
           />
         </Space>
       </Space>
-      <Table
-        rowKey="id"
-        loading={loading}
-        columns={columns}
-        dataSource={filteredOrders}
-        locale={{ emptyText: "No orders yet." }}
-      />
+
+      {isMobile ? (
+        <List
+          loading={loading}
+          dataSource={filteredOrders}
+          locale={{ emptyText: "No orders yet." }}
+          renderItem={(o) => (
+            <Card size="small" style={{ marginBottom: 8 }} onClick={() => setDetail(o)}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                <Typography.Text strong>{o.customer.name}</Typography.Text>
+                <Tag color={STATUS_COLORS[o.status]}>{o.status.replace(/_/g, " ")}</Tag>
+              </div>
+              <Typography.Text type="secondary" style={{ display: "block" }}>
+                {o.items.length} item{o.items.length === 1 ? "" : "s"} · {new Date(o.createdAt).toLocaleString()}
+              </Typography.Text>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+                <Typography.Text strong>₹{Number(o.totalAmount).toFixed(2)}</Typography.Text>
+                <Tag color={PAYMENT_COLORS[o.paymentStatus]}>{o.paymentStatus}</Tag>
+              </div>
+              <Space direction="vertical" style={{ width: "100%", marginTop: 12 }}>
+                <Button
+                  block
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDetail(o);
+                  }}
+                >
+                  View details
+                </Button>
+                {profile?.role === "OWNER" && (
+                  <Popconfirm
+                    title="Delete this order permanently?"
+                    description={
+                      <span>
+                        This cannot be undone. Order #{o.id.slice(0, 8)} and its items will
+                        be permanently deleted.
+                        <br />
+                        This does not restore stock quantity.
+                      </span>
+                    }
+                    okText="Delete permanently"
+                    okButtonProps={{ danger: true }}
+                    onConfirm={(e) => {
+                      e?.stopPropagation();
+                      deleteOrder(o);
+                    }}
+                  >
+                    <Button
+                      block
+                      danger
+                      icon={<DeleteOutlined />}
+                      loading={deletingId === o.id}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      Delete
+                    </Button>
+                  </Popconfirm>
+                )}
+              </Space>
+            </Card>
+          )}
+        />
+      ) : (
+        <Table
+          rowKey="id"
+          loading={loading}
+          columns={columns}
+          dataSource={filteredOrders}
+          locale={{ emptyText: "No orders yet." }}
+        />
+      )}
 
       <Modal
         title={detail ? `Order #${detail.id.slice(0, 8)}` : ""}
@@ -288,15 +358,17 @@ export default function OrdersPage() {
           setDetail(null);
           setPaymentAmount(null);
         }}
+        width={isMobile ? "92%" : 520}
         footer={
           detail && (
-            <Space>
+            <Space direction={isMobile ? "vertical" : "horizontal"} style={{ width: "100%" }}>
               {(NEXT_STATUS[detail.status] ?? []).map((next) => (
                 <Button
                   key={next}
                   danger={next === "CANCELLED"}
                   type={next === "CANCELLED" ? "default" : "primary"}
                   loading={updating}
+                  block={isMobile}
                   onClick={() => updateStatus(detail.id, next)}
                 >
                   {STATUS_LABELS[next] ?? next}
@@ -310,12 +382,14 @@ export default function OrdersPage() {
                   okButtonProps={{ danger: true }}
                   onConfirm={() => deleteOrder(detail)}
                 >
-                  <Button danger icon={<DeleteOutlined />} loading={deletingId === detail.id}>
+                  <Button danger icon={<DeleteOutlined />} loading={deletingId === detail.id} block={isMobile}>
                     Delete
                   </Button>
                 </Popconfirm>
               )}
-              <Button onClick={() => setDetail(null)}>Close</Button>
+              <Button onClick={() => setDetail(null)} block={isMobile}>
+                Close
+              </Button>
             </Space>
           )
         }
@@ -353,8 +427,13 @@ export default function OrdersPage() {
                 </Typography.Text>
               </div>
               {remaining > 0 && (
-                <Space style={{ marginTop: 12 }}>
+                <Space
+                  direction={isMobile ? "vertical" : "horizontal"}
+                  style={{ marginTop: 12, width: isMobile ? "100%" : undefined }}
+                >
                   <InputNumber
+                    size={isMobile ? "large" : "middle"}
+                    style={{ width: isMobile ? "100%" : undefined }}
                     min={0.01}
                     max={remaining}
                     step={1}
@@ -363,7 +442,7 @@ export default function OrdersPage() {
                     value={paymentAmount}
                     onChange={setPaymentAmount}
                   />
-                  <Button loading={updating} disabled={!paymentAmount} onClick={recordPayment}>
+                  <Button loading={updating} disabled={!paymentAmount} onClick={recordPayment} block={isMobile}>
                     Record payment
                   </Button>
                 </Space>

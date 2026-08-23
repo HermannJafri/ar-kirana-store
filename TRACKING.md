@@ -713,6 +713,60 @@ repo yet (`git remote -v` empty); nothing has been pushed anywhere.
 shop-coordinate update, and in-radius re-verification are pending user action /
 input.**
 
+### Dashboard: full mobile responsiveness (2026-08-23)
+
+Requested to make the Next.js dashboard usable as a real mobile-web app, not a
+squeezed desktop layout, while the Render backend deploy ran in parallel (no backend
+changes here). Used antd's own breakpoint tooling throughout rather than custom media
+queries, per the request: a shared `useIsMobile()` hook
+(`dashboard/src/lib/responsive.ts`) wraps antd's `Grid.useBreakpoint()`, keyed off
+antd's own `md` (768px) cutoff, so every page agrees on exactly where "mobile"
+starts.
+
+- **Navigation** (`layout.tsx`): the `Sider` is replaced with a top `Header`
+  (hamburger + title + Log out) and an antd `Drawer` holding the same `Menu` on
+  mobile; desktop keeps the original `Sider` untouched. Drawer closes on menu click
+  and on route change (covers the browser back button too).
+- **Tables → card lists**: Products, Inventory, Orders, and Customers each render an
+  antd `Table` on desktop and a card-based `List` (built from the same data and
+  action handlers, not a duplicate data layer) on mobile — name/status stacked at
+  the top, key numbers (price/stock/total) below, and full-width, labeled action
+  buttons at the bottom (no icon-only buttons on mobile — e.g. "Delete" always has
+  the word next to the icon).
+- **Forms & modals**: Product add/edit, category management, order detail/payment,
+  and customer reset-password modals all get `width="92%"` on mobile instead of a
+  fixed desktop pixel width, `size="large"` form controls, and `block` (full-width)
+  buttons. Settings' latitude/longitude fields switched from a fixed 50/50
+  `Space.Compact` to `Row`/`Col` with `xs={24} sm={12}` — explicit antd breakpoint
+  props, stacks on mobile, side-by-side from `sm` up.
+- **Analytics**: the 3 summary `Statistic` cards go from `Col span={8}` to
+  `Col xs={24} sm={8}` (stack on mobile); the date-range header wraps and the
+  `RangePicker` goes full-width below the title instead of overflowing beside it;
+  the chart card's `Segmented` metric toggle shortens its labels ("Revenue"/
+  "Quantity" instead of "By Revenue"/"By Quantity") on mobile so it fits next to the
+  card title without wrapping oddly.
+- **D3 chart** (`SalesByItemChart.tsx`): margins, font size, and x-axis label
+  rotation are now computed per-render from the container's actual measured width
+  (already tracked via the existing `ResizeObserver`) — narrower than 480px switches
+  to tighter margins, smaller (10px) labels, and a steeper -45° rotation instead of
+  -25°, so labels stay legible instead of overlapping at phone widths.
+- **Login page**: fixed `width: 360` swapped for `width: "100%", maxWidth: 360` plus
+  page padding, so the card no longer touches the viewport edges on narrow phones.
+
+- [x] Verified with real Playwright device-emulated viewports (not just code
+  review) at all three requested widths — **360px, 390px, 414px** — for every
+  screen: Login, Products, Inventory, Orders, Customers, Settings, Analytics, plus
+  the Drawer nav, the product add/edit modal, and the order detail modal.
+  Screenshotted each one. Populated the DB with real sample products/orders first
+  (an empty-state screenshot proves nothing about card-list rendering) — 3 products
+  across both categories (including one out-of-stock and one low-stock, to check the
+  status-tag colors render correctly in card form) and 2 orders (one PENDING, one
+  DELIVERED/COLLECTED) — then deleted all of it after verification, confirmed via a
+  DB query.
+- [x] `tsc --noEmit` clean, `eslint` clean on every touched file.
+
+**Exit criteria: met, directly verified 2026-08-23.**
+
 ---
 
 ## Deferred / Phase 2+ (not in current scope)

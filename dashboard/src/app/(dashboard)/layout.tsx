@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Layout, Menu, Spin, Typography, Button, Alert, Badge } from "antd";
+import { Layout, Menu, Spin, Typography, Button, Alert, Badge, Drawer, Space } from "antd";
 import {
   ShoppingOutlined,
   DatabaseOutlined,
@@ -10,11 +10,13 @@ import {
   SettingOutlined,
   BarChartOutlined,
   TeamOutlined,
+  MenuOutlined,
 } from "@ant-design/icons";
 import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { useAuth } from "@/context/AuthContext";
 import { authFetch } from "@/lib/api";
+import { useIsMobile } from "@/lib/responsive";
 
 const { Header, Sider, Content } = Layout;
 
@@ -25,7 +27,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { firebaseUser, profile, loading, error } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const isMobile = useIsMobile();
   const [pendingCount, setPendingCount] = useState(0);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   useEffect(() => {
     if (loading) return;
@@ -76,6 +80,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     };
   }, [profile]);
 
+  // Closing the drawer on route change covers both a menu click (which
+  // already closes it directly) and any other navigation, e.g. the
+  // browser's back button while the drawer happens to be open.
+  useEffect(() => {
+    setDrawerOpen(false);
+  }, [pathname]);
+
   if (loading || !firebaseUser || !profile) {
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 16, justifyContent: "center", alignItems: "center", minHeight: "100vh" }}>
@@ -109,19 +120,77 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       : []),
   ];
 
+  const nav = (
+    <Menu
+      theme="dark"
+      mode="inline"
+      selectedKeys={[pathname]}
+      items={items}
+      onClick={({ key }) => {
+        router.push(key);
+        setDrawerOpen(false);
+      }}
+    />
+  );
+
+  if (isMobile) {
+    return (
+      <Layout style={{ minHeight: "100vh" }}>
+        <Header
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "0 12px",
+          }}
+        >
+          <Space>
+            <Button
+              type="text"
+              icon={<MenuOutlined style={{ color: "#fff", fontSize: 18 }} />}
+              onClick={() => setDrawerOpen(true)}
+              aria-label="Open menu"
+            />
+            <Typography.Title level={5} style={{ color: "#fff", margin: 0, whiteSpace: "nowrap" }}>
+              Kirana Store
+            </Typography.Title>
+          </Space>
+          <Button size="middle" onClick={() => signOut(auth)}>
+            Log out
+          </Button>
+        </Header>
+
+        <Drawer
+          placement="left"
+          onClose={() => setDrawerOpen(false)}
+          open={drawerOpen}
+          closable={false}
+          width={240}
+          styles={{ body: { padding: 0, background: "#001529" } }}
+        >
+          <div style={{ padding: 16 }}>
+            <Typography.Title level={4} style={{ color: "#fff", margin: 0 }}>
+              Kirana Store
+            </Typography.Title>
+            <Typography.Text style={{ color: "rgba(255,255,255,0.65)" }}>
+              {profile.name} ({profile.role})
+            </Typography.Text>
+          </div>
+          {nav}
+        </Drawer>
+
+        <Content style={{ padding: 12 }}>{children}</Content>
+      </Layout>
+    );
+  }
+
   return (
     <Layout style={{ minHeight: "100vh" }}>
       <Sider theme="dark" width={220}>
         <Typography.Title level={4} style={{ color: "#fff", margin: 16, whiteSpace: "nowrap" }}>
           Kirana Store
         </Typography.Title>
-        <Menu
-          theme="dark"
-          mode="inline"
-          selectedKeys={[pathname]}
-          items={items}
-          onClick={({ key }) => router.push(key)}
-        />
+        {nav}
       </Sider>
       <Layout>
         <Header style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 16 }}>

@@ -15,7 +15,9 @@ interface Props {
   metric: "quantity" | "revenue";
 }
 
-const MARGIN = { top: 16, right: 16, bottom: 48, left: 64 };
+const MARGIN_DESKTOP = { top: 16, right: 16, bottom: 48, left: 64 };
+const MARGIN_MOBILE = { top: 16, right: 8, bottom: 64, left: 40 };
+const MOBILE_BREAKPOINT = 480;
 const HEIGHT = 360;
 
 export default function SalesByItemChart({ data, metric }: Props) {
@@ -29,6 +31,10 @@ export default function SalesByItemChart({ data, metric }: Props) {
 
     const draw = () => {
       const width = container.clientWidth || 600;
+      const isNarrow = width < MOBILE_BREAKPOINT;
+      const MARGIN = isNarrow ? MARGIN_MOBILE : MARGIN_DESKTOP;
+      const fontSize = isNarrow ? "10px" : "12px";
+      const labelRotation = isNarrow ? -45 : -25;
       const innerWidth = width - MARGIN.left - MARGIN.right;
       const innerHeight = HEIGHT - MARGIN.top - MARGIN.bottom;
 
@@ -66,18 +72,18 @@ export default function SalesByItemChart({ data, metric }: Props) {
         .attr("transform", `translate(0,${innerHeight})`)
         .call(d3.axisBottom(x))
         .selectAll("text")
-        .attr("transform", "rotate(-25)")
+        .attr("transform", `rotate(${labelRotation})`)
         .style("text-anchor", "end")
-        .style("font-size", "12px");
+        .style("font-size", fontSize);
 
       g.append("g")
         .call(
           d3
             .axisLeft(y)
-            .ticks(5)
+            .ticks(isNarrow ? 4 : 5)
             .tickFormat((v) => (metric === "revenue" ? `₹${v}` : `${v}`))
         )
-        .style("font-size", "12px");
+        .style("font-size", fontSize);
 
       g.selectAll(".bar")
         .data(sorted)
@@ -97,7 +103,7 @@ export default function SalesByItemChart({ data, metric }: Props) {
         .attr("x", (d) => (x(d.productName) ?? 0) + x.bandwidth() / 2)
         .attr("y", (d) => y(d[metric]) - 6)
         .attr("text-anchor", "middle")
-        .style("font-size", "12px")
+        .style("font-size", fontSize)
         .text((d) => (metric === "revenue" ? `₹${d[metric].toFixed(0)}` : `${d[metric]}`));
     };
 

@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Form, Input, InputNumber, Button, Card, message, Switch, Space, Typography } from "antd";
+import { Form, Input, InputNumber, Button, Card, message, Switch, Space, Typography, Row, Col } from "antd";
 import { AimOutlined } from "@ant-design/icons";
 import { authFetch } from "@/lib/api";
+import { useIsMobile } from "@/lib/responsive";
 
 interface Shop {
   id: string;
@@ -29,6 +30,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [locating, setLocating] = useState(false);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     // Guards against React Strict Mode's double effect invocation in dev:
@@ -94,8 +96,8 @@ export default function SettingsPage() {
   };
 
   return (
-    <Card title="Shop settings" style={{ maxWidth: 480 }}>
-      <Form form={form} layout="vertical" onFinish={onFinish} disabled={loading}>
+    <Card title="Shop settings" style={{ maxWidth: isMobile ? "100%" : 480 }}>
+      <Form form={form} layout="vertical" onFinish={onFinish} disabled={loading} size={isMobile ? "large" : "middle"}>
         <Form.Item name="name" label="Shop name" rules={[{ required: true, message: "Shop name is required" }]}>
           <Input />
         </Form.Item>
@@ -114,20 +116,24 @@ export default function SettingsPage() {
           set this once from the shop, or enter coordinates manually.
         </Typography.Paragraph>
 
-        <Space style={{ marginBottom: 16 }}>
-          <Button icon={<AimOutlined />} onClick={useCurrentLocation} loading={locating}>
+        <Space style={{ marginBottom: 16, width: "100%" }}>
+          <Button icon={<AimOutlined />} onClick={useCurrentLocation} loading={locating} block={isMobile}>
             Use current location
           </Button>
         </Space>
 
-        <Space.Compact style={{ width: "100%", marginBottom: 16 }}>
-          <Form.Item name="latitude" label="Latitude" style={{ width: "50%" }}>
-            <InputNumber style={{ width: "100%" }} step={0.0001} placeholder="e.g. 12.9716" />
-          </Form.Item>
-          <Form.Item name="longitude" label="Longitude" style={{ width: "50%" }}>
-            <InputNumber style={{ width: "100%" }} step={0.0001} placeholder="e.g. 77.5946" />
-          </Form.Item>
-        </Space.Compact>
+        <Row gutter={16}>
+          <Col xs={24} sm={12}>
+            <Form.Item name="latitude" label="Latitude">
+              <InputNumber style={{ width: "100%" }} step={0.0001} placeholder="e.g. 12.9716" />
+            </Form.Item>
+          </Col>
+          <Col xs={24} sm={12}>
+            <Form.Item name="longitude" label="Longitude">
+              <InputNumber style={{ width: "100%" }} step={0.0001} placeholder="e.g. 77.5946" />
+            </Form.Item>
+          </Col>
+        </Row>
 
         <Form.Item
           name="deliveryRadiusKm"
@@ -137,7 +143,7 @@ export default function SettingsPage() {
           <InputNumber min={0.1} step={0.5} style={{ width: "100%" }} />
         </Form.Item>
 
-        <Button type="primary" htmlType="submit" loading={saving}>
+        <Button type="primary" htmlType="submit" loading={saving} block={isMobile}>
           Save
         </Button>
       </Form>

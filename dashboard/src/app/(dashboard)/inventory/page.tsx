@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Table, InputNumber, Tag, message, Typography } from "antd";
+import { Table, InputNumber, Tag, message, Typography, List, Card, Space } from "antd";
 import { authFetch } from "@/lib/api";
+import { useIsMobile } from "@/lib/responsive";
 
 const LOW_STOCK_THRESHOLD = 5;
 
@@ -15,10 +16,18 @@ interface Product {
   category: { id: string; name: string } | null;
 }
 
+function statusTag(record: Product) {
+  if (!record.isAvailable) return <Tag>Deactivated</Tag>;
+  if (record.quantityAvailable === 0) return <Tag color="red">Out of stock</Tag>;
+  if (record.quantityAvailable <= LOW_STOCK_THRESHOLD) return <Tag color="orange">Low stock</Tag>;
+  return <Tag color="green">In stock</Tag>;
+}
+
 export default function InventoryPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const isMobile = useIsMobile();
   const requestIdRef = useRef(0);
 
   const load = async () => {
@@ -83,12 +92,7 @@ export default function InventoryPage() {
     },
     {
       title: "Status",
-      render: (_: unknown, record: Product) => {
-        if (!record.isAvailable) return <Tag>Deactivated</Tag>;
-        if (record.quantityAvailable === 0) return <Tag color="red">Out of stock</Tag>;
-        if (record.quantityAvailable <= LOW_STOCK_THRESHOLD) return <Tag color="orange">Low stock</Tag>;
-        return <Tag color="green">In stock</Tag>;
-      },
+      render: (_: unknown, record: Product) => statusTag(record),
     },
   ];
 
@@ -98,13 +102,47 @@ export default function InventoryPage() {
       <Typography.Paragraph type="secondary">
         Edit stock quantities directly — changes save as you type.
       </Typography.Paragraph>
-      <Table
-        rowKey="id"
-        loading={loading}
-        columns={columns}
-        dataSource={products}
-        locale={{ emptyText: "No products yet." }}
-      />
+
+      {isMobile ? (
+        <List
+          loading={loading}
+          dataSource={products}
+          locale={{ emptyText: "No products yet." }}
+          renderItem={(record) => (
+            <Card size="small" style={{ marginBottom: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                <Typography.Text strong>{record.name}</Typography.Text>
+                {statusTag(record)}
+              </div>
+              <Typography.Text type="secondary" style={{ display: "block", marginBottom: 12 }}>
+                {record.category?.name ?? "Uncategorized"}
+                {record.unit ? ` · ${record.unit}` : ""}
+              </Typography.Text>
+              <Space align="center">
+                <Typography.Text>Stock:</Typography.Text>
+                <InputNumber
+                  size="large"
+                  min={0}
+                  value={record.quantityAvailable}
+                  disabled={savingId === record.id}
+                  onChange={(value) => {
+                    if (value !== null) updateQuantity(record.id, value);
+                  }}
+                  style={{ width: 120 }}
+                />
+              </Space>
+            </Card>
+          )}
+        />
+      ) : (
+        <Table
+          rowKey="id"
+          loading={loading}
+          columns={columns}
+          dataSource={products}
+          locale={{ emptyText: "No products yet." }}
+        />
+      )}
     </div>
   );
 }
