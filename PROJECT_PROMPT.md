@@ -63,6 +63,18 @@ the backend instead means:
   server-side to avoid race conditions (two customers ordering the last unit at once);
   this just extends the same reasoning to every other read/write.
 
+**Two connection strings, not one (added 2026-08-23):** `schema.prisma`'s datasource
+has both `url` (→ `DATABASE_URL`) and `directUrl` (→ `DIRECT_URL`). `DATABASE_URL` is
+Supabase's *pooled* connection (pgbouncer/Supavisor, port 6543) — what the running app
+uses for every normal query. `DIRECT_URL` is the *direct*, non-pooled connection (port
+5432) — used only by `prisma migrate deploy`. This split exists because `migrate
+deploy` hung indefinitely on Render when pointed at the pooler: it connected fine but
+the migration itself never completed, since pooled connections don't support the
+session-level advisory locking Prisma migrations rely on. Both values come from the
+same Supabase project (Project Settings → Database → Connection string — "Transaction"
+mode for `DATABASE_URL`, "Session"/direct for `DIRECT_URL`); see
+`backend/.env.example` for the exact format of each.
+
 Supabase RLS is still enabled on all tables as a deny-by-default safety net (see
 `backend/sql/rls_policies.sql`) — it protects against a leaked anon key or a
 misconfigured client, but it is not the access-control mechanism the app relies on.

@@ -6,8 +6,16 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  // Pooled connection (Supabase's pgbouncer/Supavisor pooler) — used for
+  // all normal runtime queries.
+  url       = env("DATABASE_URL")
+  // Direct (non-pooled) connection — used only for `prisma migrate deploy`.
+  // Pooled connections don't support the session-level advisory locking
+  // Prisma migrations need, which is why `migrate deploy` hung on Render
+  // (connected fine, then never completed). See PROJECT_PROMPT.md /
+  // backend/.env.example for which URL goes where.
+  directUrl = env("DIRECT_URL")
 }
 
 // ---------- ENUMS ----------
