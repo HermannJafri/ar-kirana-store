@@ -838,6 +838,36 @@ Render.
 **Exit criteria: met, verified 2026-08-23 with a clean `NODE_ENV=production`
 install+build matching Render's environment exactly.**
 
+### Dashboard mobile fix: missing viewport meta tag (2026-08-23)
+
+Reported after the mobile-responsiveness work above: on a real phone, the sidebar
+never collapsed into the hamburger/Drawer and tables didn't behave responsively —
+despite the responsive code itself (`useIsMobile()`, Drawer nav, card lists)
+verifying correctly under Playwright's device emulation at the time it was built.
+
+**Root cause**: `dashboard/src/app/layout.tsx` never declared a `viewport` meta tag.
+Without it, mobile browsers render the page on a fake ~980px desktop-width canvas
+and zoom the whole thing out to fit the screen. antd's `Grid.useBreakpoint()` (what
+`useIsMobile()` wraps) reads that fake width, never sees a real "mobile" width, and
+keeps rendering the desktop `Sider`/`Table` layout regardless of the phone's actual
+screen size — Playwright's device emulation doesn't reproduce this because it sets
+the viewport directly rather than going through a browser's no-meta-tag fallback.
+
+- Added `export const viewport: Viewport = { width: "device-width", initialScale: 1
+  }` to the root layout.
+- Also added `scroll={{ x: "max-content" }}` to the desktop `Table` on Products,
+  Inventory, Orders, and Customers, so a table scrolls horizontally within its own
+  container instead of squishing columns if ever viewed on a narrower desktop/tablet
+  window (defensive — no actual overflow was found at any tested width).
+- [x] Verified with Playwright: confirmed the rendered HTML now includes
+  `<meta name="viewport" content="width=device-width, initial-scale=1">`; re-checked
+  every dashboard route (Products, Inventory, Orders, Customers) after both a
+  client-side navigation and a hard reload — hamburger + Drawer + card `List` render
+  correctly below 768px, `Sider` + `Table` at 768px and above, zero horizontal page
+  overflow at 360/390/414/767/768/800/1024px.
+
+**Exit criteria: met, verified 2026-08-23.**
+
 ---
 
 ## Deferred / Phase 2+ (not in current scope)
