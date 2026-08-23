@@ -812,6 +812,32 @@ removed.` — TS 5.8+ dropped the `"node"`/`"node10"` value that
 **Exit criteria: met, both fixes verified locally and (DIRECT_URL) confirmed live
 on Render 2026-08-23.**
 
+**3. Follow-up — TS7016/TS7006 after the moduleResolution fix.** Turned out to be a
+different bug entirely, just unmasked by fix #2 above (the old `TS5108` error was
+fatal before any type-checking ran, so it hid this). Root cause: `render.yaml` sets
+`NODE_ENV=production` for the whole service, and npm skips `devDependencies` during
+`npm install` when `NODE_ENV=production` is set. `typescript`, `@types/express`,
+`@types/cors`, `@types/multer`, and the `prisma` CLI were all in `devDependencies` —
+present locally (installed without `NODE_ENV=production`), silently absent on
+Render.
+
+- Confirmed the `@types/*` packages *were* correctly listed in
+  `backend/package.json` already — this wasn't a "forgot to declare it" bug.
+- Fix: moved `typescript`, `@types/cors`, `@types/express`, `@types/multer`,
+  `@types/node`, and `prisma` from `devDependencies` into `dependencies`, so they
+  install regardless of `NODE_ENV`. `ts-node-dev` stays in `devDependencies` — it's
+  only used by the local `dev` script, never at build or runtime.
+- [x] Verified by reproducing Render's exact conditions locally: deleted
+  `node_modules` and `package-lock.json`, ran `NODE_ENV=production npm install`
+  (261 packages; confirmed `@types/*`, `tsc`, and `prisma` present in
+  `node_modules/.bin`), then `NODE_ENV=production npm run build` and
+  `npx prisma migrate deploy` — both clean, zero errors. Restored a normal
+  (non-production) install afterward and confirmed the local dev server and
+  `/health` still work.
+
+**Exit criteria: met, verified 2026-08-23 with a clean `NODE_ENV=production`
+install+build matching Render's environment exactly.**
+
 ---
 
 ## Deferred / Phase 2+ (not in current scope)
