@@ -767,6 +767,51 @@ starts.
 
 **Exit criteria: met, directly verified 2026-08-23.**
 
+### Render deploy fixes: DIRECT_URL + tsconfig moduleResolution (2026-08-23)
+
+Two build-breaking issues found while actually deploying the backend to Render,
+fixed in sequence as each was hit.
+
+**1. `prisma migrate deploy` hanging on Render.** It connected to the database fine
+but the migration step itself never completed. Cause: `DATABASE_URL` on Render is
+Supabase's pooled connection (pgbouncer/Supavisor), and pooled connections don't
+support the session-level advisory locking `prisma migrate deploy` needs — a plain
+runtime query works fine over the pooler, but a migration silently hangs.
+
+- Added a separate `directUrl` to the `datasource db` block in
+  `backend/prisma/schema.prisma`, reading a new `DIRECT_URL` env var (the direct,
+  non-pooled, port-5432 connection). `url` still reads `DATABASE_URL` (the pooler)
+  for normal runtime queries — only migrations use `directUrl`.
+- Documented the split in `backend/.env.example` (pooled vs. direct, with the ports
+  and Supabase dashboard field names to copy each from) and in `PROJECT_PROMPT.md`.
+- Added `DIRECT_URL` to `render.yaml`'s `envVars` list (`sync: false`, same pattern
+  as `DATABASE_URL`) so future Blueprint deploys prompt for it automatically instead
+  of silently missing it.
+- [x] Verified locally: `prisma validate`, `prisma generate`, and
+  `prisma migrate deploy` all pass with `DIRECT_URL` set. Confirmed on Render itself
+  afterward — migrations ran successfully.
+
+**2. TypeScript build failing on Render** with
+`tsconfig.json(13,25): error TS5108: Option 'moduleResolution=node10' has been
+removed.` — TS 5.8+ dropped the `"node"`/`"node10"` value that
+`backend/tsconfig.json` had set explicitly.
+
+- Tried `"bundler"` → rejected (`TS5095`: requires `module` to be `es2015+` or
+  `"preserve"`). Tried `"node16"` → rejected (`TS5110`: requires `module` to be
+  exactly `"Node16"`). Both would have forced a larger `module` change than
+  warranted — the backend stays plain CommonJS (no `"type": "module"` in
+  `package.json`, run via `node dist/index.js`).
+- Fix: removed the explicit `moduleResolution` line entirely and let TypeScript
+  infer its implicit default for `module: "commonjs"`, which resolves the same way
+  `node10` did.
+- [x] Verified with the full `npm run build` (`prisma generate && tsc -p
+  tsconfig.json`, matching Render's actual build command) — clean pass, correct
+  CommonJS `dist/` output. Also restarted the dev server and confirmed `/health`
+  still responds, to rule out any runtime resolution regression.
+
+**Exit criteria: met, both fixes verified locally and (DIRECT_URL) confirmed live
+on Render 2026-08-23.**
+
 ---
 
 ## Deferred / Phase 2+ (not in current scope)
