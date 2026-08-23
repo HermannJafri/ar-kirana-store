@@ -141,6 +141,7 @@ export default function InventoryPage() {
           columns={columns}
           dataSource={products}
           locale={{ emptyText: "No products yet." }}
+          scroll={{ x: "max-content" }}
         />
       )}
     </div>

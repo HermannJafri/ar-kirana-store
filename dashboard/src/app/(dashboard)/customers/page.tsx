@@ -211,6 +211,7 @@ export default function CustomersPage() {
           columns={columns}
           dataSource={filtered}
           locale={{ emptyText: "No customers yet." }}
+          scroll={{ x: "max-content" }}
         />
       )}
 

@@ -348,6 +348,7 @@ export default function OrdersPage() {
           columns={columns}
           dataSource={filteredOrders}
           locale={{ emptyText: "No orders yet." }}
+          scroll={{ x: "max-content" }}
         />
       )}
 

@@ -361,6 +361,7 @@ export default function ProductsPage() {
           columns={columns}
           dataSource={filteredProducts}
           locale={{ emptyText: "No products match." }}
+          scroll={{ x: "max-content" }}
         />
       )}
 
